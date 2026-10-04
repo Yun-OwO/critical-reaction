@@ -1,0 +1,61 @@
+<style>
+  :root { --bg:#07111d; --line:#1d4862; --cyan:#67e8f9; --orange:#ff8a4c; --yellow:#fde047; --pink:#ff5c7a; --muted:#91a8b8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(circle at 50% 0%, #10283a 0, var(--bg) 58%); color:#e7f6fb; font-family:Segoe UI, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:28px 24px 42px; }
+  h1 { margin:0 0 8px; letter-spacing:.04em; font-size:28px; }
+  .intro { color:var(--muted); margin:0 0 26px; }
+  h2 { font-size:18px; margin:28px 0 12px; color:var(--cyan); }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .card { border:1px solid var(--line); background:rgba(8,23,36,.82); border-radius:8px; overflow:hidden; cursor:pointer; transition:.2s; }
+  .card:hover { border-color:var(--cyan); transform:translateY(-2px); }
+  .card.selected { border-color:var(--yellow); box-shadow:0 0 0 2px rgba(253,224,71,.22), 0 0 28px rgba(253,224,71,.12); }
+  .title { padding:14px 16px 0; font-weight:700; }
+  .desc { padding:5px 16px 12px; color:var(--muted); font-size:13px; line-height:1.45; min-height:52px; }
+  .boss { height:235px; position:relative; display:grid; place-items:center; background:linear-gradient(135deg,#091a29,#07111d); }
+  .core { width:58px; height:58px; border:2px solid var(--cyan); transform:rotate(45deg); display:grid; place-items:center; box-shadow:0 0 20px #67e8f9; }
+  .core:after { content:''; width:18px; height:18px; border:2px solid white; }
+  .ring { position:absolute; width:var(--size); height:calc(var(--size) * .7); border:2px solid var(--color); border-radius:50%; transform:rotate(var(--tilt)); opacity:.8; box-shadow:0 0 12px var(--color); }
+  .electron { position:absolute; width:9px; height:9px; border-radius:50%; background:var(--ecolor); box-shadow:0 0 10px var(--ecolor); transform:translate(var(--x),var(--y)); }
+  .legend { position:absolute; bottom:12px; left:14px; right:14px; display:flex; justify-content:space-between; color:var(--muted); font-size:12px; }
+  .bar { height:8px; margin:0 16px 16px; background:#102c3a; border-radius:4px; overflow:hidden; }
+  .fill { height:100%; background:linear-gradient(90deg,var(--orange),var(--yellow)); }
+  .dash { height:160px; position:relative; background:#091a29; overflow:hidden; }
+  .lane { position:absolute; left:12%; right:12%; top:50%; border-top:1px dashed #2b5b6f; }
+  .player { position:absolute; top:calc(50% - 12px); left:25%; width:24px; height:24px; border:2px solid var(--cyan); transform:rotate(45deg); box-shadow:0 0 16px var(--cyan); }
+  .ghost { position:absolute; top:calc(50% - 10px); width:20px; height:20px; border:2px solid var(--color); transform:rotate(45deg); opacity:.7; }
+  .g1 { left:43%; } .g2 { left:53%; } .g3 { left:63%; }
+  .dashline { position:absolute; left:25%; top:50%; width:45%; border-top:2px solid var(--color); opacity:.65; }
+  .timing { padding:12px 16px 15px; color:var(--muted); font-size:13px; }
+  .timing strong { color:#fff; }
+  .note { margin-top:24px; padding:14px 16px; border-left:3px solid var(--yellow); background:rgba(253,224,71,.06); color:#c8d9df; line-height:1.55; font-size:13px; }
+  @media(max-width:850px){ .grid{grid-template-columns:1fr;} }
+</style>
+<div class="wrap">
+  <h1>临界反应 · Boss / 双段冲刺视觉对照</h1>
+  <p class="intro">请选择最符合战斗节奏的 Boss 电子层级和冲刺反馈。点击卡片可标记选择。</p>
+
+  <h2>Boss 电子层级配置</h2>
+  <div class="grid">
+    <div class="card" data-choice="boss-3-6-6" onclick="toggleSelect(this)">
+      <div class="title">A · 三层渐进</div><div class="desc">内层 4、中层 6、外层 6，共 16 颗。避免全满，首阶段压力平稳。</div>
+      <div class="boss"><i class="core"></i><i class="ring" style="--size:150px;--color:#ff8a4c;--tilt:-18deg"></i><i class="ring" style="--size:192px;--color:#fde047;--tilt:22deg"></i><i class="ring" style="--size:234px;--color:#ff8a4c;--tilt:-35deg"></i><i class="electron" style="--ecolor:#ff8a4c;--x:-68px;--y:-16px"></i><i class="electron" style="--ecolor:#fde047;--x:80px;--y:5px"></i><i class="electron" style="--ecolor:#fde047;--x:-20px;--y:70px"></i><div class="legend"><span>4 / 6 / 6</span><span>16 e⁻</span></div></div><div class="bar"><div class="fill" style="width:72%"></div></div>
+    </div>
+    <div class="card" data-choice="boss-4-5-7" onclick="toggleSelect(this)">
+      <div class="title">B · 外层耐久</div><div class="desc">内层 4、中层 5、外层 7，共 16 颗。外圈更持久，鼓励方向瞄准。</div>
+      <div class="boss"><i class="core"></i><i class="ring" style="--size:150px;--color:#ff8a4c;--tilt:-18deg"></i><i class="ring" style="--size:192px;--color:#fde047;--tilt:22deg"></i><i class="ring" style="--size:234px;--color:#ff5c7a;--tilt:-35deg"></i><i class="electron" style="--ecolor:#ff8a4c;--x:-68px;--y:-16px"></i><i class="electron" style="--ecolor:#fde047;--x:80px;--y:5px"></i><i class="electron" style="--ecolor:#ff5c7a;--x:96px;--y:54px"></i><div class="legend"><span>4 / 5 / 7</span><span>16 e⁻</span></div></div><div class="bar"><div class="fill" style="width:78%"></div></div>
+    </div>
+    <div class="card" data-choice="boss-3-5-8" onclick="toggleSelect(this)">
+      <div class="title">C · 阶段高压</div><div class="desc">内层 3、中层 5、外层 8，共 16 颗。仅外层满 8，避免“全部 8”秒杀规则。</div>
+      <div class="boss"><i class="core"></i><i class="ring" style="--size:150px;--color:#ff8a4c;--tilt:-18deg"></i><i class="ring" style="--size:192px;--color:#fde047;--tilt:22deg"></i><i class="ring" style="--size:234px;--color:#ff5c7a;--tilt:-35deg"></i><i class="electron" style="--ecolor:#ff8a4c;--x:-58px;--y:12px"></i><i class="electron" style="--ecolor:#fde047;--x:62px;--y:-22px"></i><i class="electron" style="--ecolor:#ff5c7a;--x:102px;--y:22px"></i><div class="legend"><span>3 / 5 / 8</span><span>16 e⁻</span></div></div><div class="bar"><div class="fill" style="width:84%"></div></div>
+    </div>
+  </div>
+
+  <h2>双段冲刺反馈</h2>
+  <div class="grid">
+    <div class="card" data-choice="dash-trail" onclick="toggleSelect(this)"><div class="title">A · 轨迹残影</div><div class="desc">第一次冲刺留下短残影，第二次冲刺形成更亮的连续轨迹。</div><div class="dash"><i class="lane"></i><i class="dashline" style="--color:#67e8f9"></i><i class="player"></i><i class="ghost g1" style="--color:#67e8f9"></i><i class="ghost g2" style="--color:#fde047"></i><i class="ghost g3" style="--color:#ff8a4c"></i><div class="legend"><span>冲刺 1 → 0.1s → 冲刺 2</span><span>冷却 0.8s</span></div></div><div class="timing"><strong>节奏：</strong>连续位移感最强，视觉负担低。</div></div>
+    <div class="card" data-choice="dash-burst" onclick="toggleSelect(this)"><div class="title">B · 二次爆发</div><div class="desc">第二次冲刺增加环形冲击波和亮度，明确表示两段已经完成。</div><div class="dash"><i class="lane"></i><i class="dashline" style="--color:#fde047"></i><i class="player"></i><i class="ghost g1" style="--color:#67e8f9"></i><i class="ghost g2" style="--color:#fde047"></i><i class="ghost g3" style="--color:#ff5c7a"></i><div style="position:absolute;left:61%;top:31%;width:38px;height:38px;border:2px solid #fde047;border-radius:50%;box-shadow:0 0 18px #fde047"></div><div class="legend"><span>冲刺 1 → 0.1s → 冲刺 2</span><span>冷却 0.8s</span></div></div><div class="timing"><strong>节奏：</strong>状态辨识最清楚，适合 Boss 战反馈。</div></div>
+    <div class="card" data-choice="dash-pulse" onclick="toggleSelect(this)"><div class="title">C · 脉冲计数</div><div class="desc">每次冲刺都显示一次小脉冲，第二次结束时显示冷却环。</div><div class="dash"><i class="lane"></i><i class="dashline" style="--color:#ff8a4c"></i><i class="player"></i><i class="ghost g1" style="--color:#67e8f9"></i><i class="ghost g2" style="--color:#67e8f9"></i><i class="ghost g3" style="--color:#ff8a4c"></i><div style="position:absolute;left:39%;top:36%;width:24px;height:24px;border:2px solid #67e8f9;border-radius:50%"></div><div style="position:absolute;left:57%;top:32%;width:34px;height:34px;border:2px solid #ff8a4c;border-radius:50%"></div><div class="legend"><span>冲刺 1 → 0.1s → 冲刺 2</span><span>冷却 0.8s</span></div></div><div class="timing"><strong>节奏：</strong>信息密度最高，强调资源管理。</div></div>
+  </div>
+  <div class="note">建议重点比较：Boss 的电子是否看起来“有层次但不会被一次氧化攻击清空”，以及双段冲刺是否能一眼区分第一次、第二次和冷却状态。</div>
+</div>
