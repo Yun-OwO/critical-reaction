@@ -29,10 +29,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: 安装 Node 20
+      - name: 安装 Node 22（Capacitor CLI 要求 ≥22）
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: 安装依赖
