@@ -688,6 +688,183 @@
         .ui-tabs .ui-button { min-height: 22px; padding: 3px 6px; font-size: 10px; }
         .ui-hint { margin-top: 4px; font-size: 9px; }
       }
+
+      /* ===== 设计系统覆盖层：去网页味 · 实验室氛围（后置覆盖同优先级规则） ===== */
+      /* 全局氛围：扫描线 + 暗角（pointer-events 穿透，覆盖一切 DOM 面板形成统一介质感） */
+      body::after {
+        content: ''; position: fixed; inset: 0; z-index: 210; pointer-events: none;
+        background:
+          repeating-linear-gradient(0deg, rgba(210,235,255,.022) 0 1px, transparent 1px 3px),
+          radial-gradient(ellipse at center, transparent 52%, rgba(2,6,12,.42) 100%);
+      }
+      /* 面板统一形态：渐变描边 + 切角 + 玻璃背景 */
+      .ui-panel, .report-panel, .status-panel {
+        border: 1px solid transparent;
+        background:
+          linear-gradient(165deg, rgba(8,18,30,.93) 0%, rgba(6,11,20,.97) 100%) padding-box,
+          linear-gradient(160deg, rgba(103,232,249,.55) 0%, rgba(103,232,249,.08) 38%, rgba(103,232,249,.05) 70%, rgba(167,139,250,.35) 100%) border-box;
+        border-radius: 2px;
+        clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+        backdrop-filter: blur(14px) saturate(1.25);
+        animation: lab-reveal .34s cubic-bezier(.2,.9,.25,1);
+      }
+      @keyframes lab-reveal {
+        from { opacity: 0; clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); transform: translate(-50%, -50%) scale(.985); }
+        to { opacity: 1; }
+      }
+      .report-panel { animation-name: lab-reveal-center; }
+      @keyframes lab-reveal-center { from { opacity: 0; transform: translate(-50%, -50%) scale(.96); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+      /* 数字对齐：结算/属性行的数值用等宽数字 */
+      .report-row, .report-row b, .status-col .report-row, .report-gear { font-variant-numeric: tabular-nums; }
+      /* 面板标题：呼吸描边 + 加宽字距 */
+      .ui-panel h1, .status-head h1, .report-title {
+        letter-spacing: .32em; padding-left: .32em;
+        animation: title-glow 3.2s ease-in-out infinite;
+      }
+      @keyframes title-glow { 0%,100% { text-shadow: 0 0 22px rgba(103,232,249,.25); } 50% { text-shadow: 0 0 40px rgba(103,232,249,.5); } }
+      /* 按钮：细线框 + 宽字距（去实体色块网页感） */
+      .ui-button, #status-close, #upgrade-skip {
+        border-radius: 2px; letter-spacing: .18em; padding-left: calc(16px + .18em);
+        background: rgba(103,232,249,.05);
+        transition: transform .12s, background .15s, color .15s, box-shadow .2s, border-color .15s;
+      }
+      .ui-button:hover, .ui-button:focus-visible, .ui-button.active {
+        color: #fff; background: rgba(103,232,249,.14);
+        border-color: rgba(103,232,249,.75);
+        box-shadow: 0 0 24px rgba(103,232,249,.18), inset 0 0 14px rgba(103,232,249,.08);
+      }
+      .ui-button.primary { color: #0b1220; background: linear-gradient(160deg, #fde047, #f5c518); }
+      .ui-button.primary:hover, .ui-button.primary:focus-visible { background: linear-gradient(160deg, #fff3a0, #fde047); color: #0b1220; }
+      .setting-value:hover, .setting-value:focus-visible { color: #67e8f9; background: rgba(103,232,249,.08); border-color: rgba(103,232,249,.4); }
+      /* 滚动条：细线幽蓝 */
+      .ui-panel-scroll::-webkit-scrollbar, #status-panel-body::-webkit-scrollbar,
+      #settings-content::-webkit-scrollbar, .ui-panel::-webkit-scrollbar { width: 4px; }
+      .ui-panel-scroll::-webkit-scrollbar-thumb, #status-panel-body::-webkit-scrollbar-thumb,
+      #settings-content::-webkit-scrollbar-thumb, .ui-panel::-webkit-scrollbar-thumb { background: rgba(103,232,249,.28); }
+      .ui-panel-scroll::-webkit-scrollbar-track, #status-panel-body::-webkit-scrollbar-track,
+      #settings-content::-webkit-scrollbar-track, .ui-panel::-webkit-scrollbar-track { background: transparent; }
+      /* 祝福卡片：跟随切角语言 */
+      .upgrade-card {
+        border-radius: 2px;
+        clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+        backdrop-filter: blur(8px);
+        background:
+          linear-gradient(165deg, rgba(13,23,37,.94) 0%, rgba(7,13,23,.97) 100%) padding-box,
+          linear-gradient(170deg, var(--card-color, #67e8f9) 0%, transparent 55%, var(--card-color, #67e8f9) 100%) border-box;
+      }
+      .card-name, .card-desc, .card-rarity { font-variant-numeric: tabular-nums; }
+      /* ===== 启动屏：实验室全息氛围 ===== */
+      #start-overlay {
+        background:
+          radial-gradient(ellipse 85% 55% at 50% 36%, rgba(103,232,249,.08), transparent 70%),
+          radial-gradient(ellipse 60% 45% at 72% 82%, rgba(167,139,250,.06), transparent 70%),
+          radial-gradient(ellipse 55% 40% at 22% 75%, rgba(92,255,177,.04), transparent 70%),
+          #0A0E1A;
+      }
+      #start-overlay::before {
+        content: ''; position: absolute; inset: -25%;
+        background-image:
+          linear-gradient(rgba(103,232,249,.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(103,232,249,.045) 1px, transparent 1px);
+        background-size: 52px 52px;
+        transform: perspective(620px) rotateX(38deg) translateY(22%);
+        animation: lab-grid 14s linear infinite;
+        -webkit-mask-image: radial-gradient(ellipse 55% 45% at 50% 45%, #000 25%, transparent 72%);
+        mask-image: radial-gradient(ellipse 55% 45% at 50% 45%, #000 25%, transparent 72%);
+      }
+      @keyframes lab-grid { to { background-position: 0 52px, 52px 0; } }
+      #start-overlay h1 {
+        background: linear-gradient(180deg, #ffffff 30%, #9adbf0 75%, #67e8f9 100%);
+        -webkit-background-clip: text; background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: none;
+        filter: drop-shadow(0 0 34px rgba(103,232,249,.35));
+        letter-spacing: .3em; padding-left: .3em;
+      }
+      #start-overlay .subtitle { display: flex; align-items: center; gap: 16px; letter-spacing: .5em; padding-left: .5em; }
+      #start-overlay .subtitle::before, #start-overlay .subtitle::after {
+        content: ''; display: inline-block; width: 56px; height: 1px;
+      }
+      #start-overlay .subtitle::before { background: linear-gradient(90deg, transparent, rgba(103,232,249,.6)); }
+      #start-overlay .subtitle::after { background: linear-gradient(90deg, rgba(103,232,249,.6), transparent); }
+      #start-overlay .start-btn {
+        color: #9adef2; background: rgba(103,232,249,.07);
+        border: 1px solid rgba(103,232,249,.6);
+        letter-spacing: .42em; padding-left: calc(64px + .42em);
+        clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+      }
+      #start-overlay .start-btn:hover { color: #fff; background: rgba(103,232,249,.16); box-shadow: 0 0 52px rgba(103,232,249,.3); }
+
+
+      /* ===== 卫戍协议签名元素：括号框角 + 动效三档纪律 ===== */
+      :root {
+        --ease-out-lab: cubic-bezier(.2,.8,.2,1);
+        --ease-inout-lab: cubic-bezier(.6,0,.3,1);
+        --dur-1: 150ms; --dur-2: 200ms; --dur-3: 250ms;
+      }
+      /* 按钮括号框角：四角 L 形描边，hover 时淡入并外扩（签名语言） */
+      .ui-button, #upgrade-skip, #status-close {
+        position: relative;
+        transition: color var(--dur-1) var(--ease-out-lab), background var(--dur-2) var(--ease-out-lab),
+                    border-color var(--dur-2) var(--ease-out-lab), box-shadow var(--dur-3) var(--ease-out-lab),
+                    transform var(--dur-1) var(--ease-out-lab);
+      }
+      .ui-button::after, #upgrade-skip::after, #status-close::after {
+        content: ''; position: absolute; inset: -3px; pointer-events: none; opacity: 0;
+        -webkit-transition: opacity var(--dur-2) var(--ease-out-lab), scale var(--dur-2) var(--ease-out-lab);
+        transition: opacity var(--dur-2) var(--ease-out-lab), scale var(--dur-2) var(--ease-out-lab);
+        scale: 1.06;
+        background:
+          linear-gradient(#67e8f9, #67e8f9) left 0 top 0 / 10px 1.5px,
+          linear-gradient(#67e8f9, #67e8f9) left 0 top 0 / 1.5px 10px,
+          linear-gradient(#67e8f9, #67e8f9) right 0 top 0 / 10px 1.5px,
+          linear-gradient(#67e8f9, #67e8f9) right 0 top 0 / 1.5px 10px,
+          linear-gradient(#67e8f9, #67e8f9) left 0 bottom 0 / 10px 1.5px,
+          linear-gradient(#67e8f9, #67e8f9) left 0 bottom 0 / 1.5px 10px,
+          linear-gradient(#67e8f9, #67e8f9) right 0 bottom 0 / 10px 1.5px,
+          linear-gradient(#67e8f9, #67e8f9) right 0 bottom 0 / 1.5px 10px;
+        background-repeat: no-repeat;
+      }
+      .ui-button:hover::after, .ui-button:focus-visible::after,
+      #upgrade-skip:hover::after, #upgrade-skip:focus-visible::after,
+      #status-close:hover::after, #status-close:active::after {
+        opacity: .85; scale: 1;
+      }
+      /* 面板入场统一走动效三档（覆盖更早的 lab-reveal 时长） */
+      .ui-panel, .report-panel, .status-panel { animation-duration: var(--dur-3); animation-timing-function: var(--ease-out-lab); }
+
+
+      /* ===== 卫戍协议材质细节：八边形稀有度芯片 / 主按钮斜纹 / 面板标题分隔线 ===== */
+      /* 稀有度徽章 → 八边形芯片（clip-path 官方感） */
+      .card-rarity {
+        clip-path: polygon(28% 0, 72% 0, 100% 50%, 72% 100%, 28% 100%, 0 50%);
+        border-radius: 0; padding: 2px 13px;
+      }
+      /* 主按钮（黄）右端斜纹 hatch + 顶部高光：'准备就绪' 官方质感 */
+      .ui-button.primary {
+        background-image:
+          repeating-linear-gradient(-55deg, rgba(255,255,255,.16) 0 5px, transparent 5px 11px),
+          linear-gradient(160deg, #fde047, #f0c419);
+        box-shadow: 0 0 16px rgba(253,224,71,.22), inset 0 1px 0 rgba(255,255,255,.45);
+      }
+      .ui-button.primary:hover, .ui-button.primary:focus-visible {
+        background-image:
+          repeating-linear-gradient(-55deg, rgba(255,255,255,.22) 0 5px, transparent 5px 11px),
+          linear-gradient(160deg, #fff3a0, #fde047);
+      }
+      /* 面板标题下方细分隔线（居中收窄，呼应启动屏副标题装饰线） */
+      .ui-panel h1::after {
+        content: ''; display: block; width: 76px; height: 1px;
+        margin: 9px auto 0;
+        background: linear-gradient(90deg, transparent, rgba(103,232,249,.55), transparent);
+      }
+      /* 结算/状态面板标题同样处理 */
+      .report-title::after, .status-head h1::after {
+        content: ''; display: block; height: 1px; margin-top: 8px;
+        background: linear-gradient(90deg, transparent, rgba(103,232,249,.45), transparent);
+      }
+      .status-head h1::after { width: 76px; }
+
     </style>
   </head>
   <body>

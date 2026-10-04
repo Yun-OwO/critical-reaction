@@ -13,7 +13,7 @@ import type { FeedbackTier } from '../visual/feedback';
 import { describeElectronState, overloadTick } from '../combat/electronState';
 import type { ElectronState } from '../combat/electronState';
 import { BAG_UPGRADE_AMOUNT, BAG_UPGRADE_COST, loadDashCdMult, loadSpeedMult, describeLoad } from '../combat/load';
-import { pickBoons, getBoonDef } from '../data/upgrades';
+import { pickBoons, getBoonDef, sampleDisabledBoons, BOON_POOL } from '../data/upgrades';
 import type { BoonDef, BoonRarity } from '../data/upgrades';
 import { SCHOOL_COLORS, RARITY_COLORS, RARITY_LABELS, SCHOOL_NAMES, SCHOOL_SYMBOLS, SLOT_ICONS, SLOT_NAMES, formatBoonDesc } from '../data/upgrades';
 import { gameState } from '../state/GameState';
@@ -45,6 +45,9 @@ import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
 import { computeUiScale, currentViewportMetrics } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
+import { SfxLimiter } from '../utils/SfxLimiter';
+import { addLayers, claimMilestones, isRunawayCancel, reactionDamageMult } from '../combat/reaction';
+import { TutorialController } from '../tutorial/TutorialController';
 
 interface RuntimeEnemy {
   view: Phaser.GameObjects.Image;
@@ -206,11 +209,17 @@ interface OrbitRing {
   speed: number;
   phase: number;
   graphics: Phaser.GameObjects.Graphics;
+}
+
+/** 环绕卫星（自由电子的实体化）：数量实时映射 gameState.freeElectrons（上限=电子扩容上限 5）。 */
+interface OrbitSatellite {
   electron: Phaser.GameObjects.Arc;
   glow: Phaser.GameObjects.Arc;
   glowLayers: Phaser.GameObjects.Arc[];
   innerHalo: Phaser.GameObjects.Arc;
   outerHalo: Phaser.GameObjects.Arc;
+  /** 平滑后的透明度：获得/失去电子时淡入淡出而不是闪现消失 */
+  alpha: number;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -221,6 +230,9 @@ export class GameScene extends Phaser.Scene {
   private readonly diamondA = this.worldWidth / 2;
   private readonly diamondB = this.worldHeight / 2;
   private orbitRings: OrbitRing[] = [];
+  /** 环绕卫星池：长度 = 自由电子上限（商店扩容后 5），显示数量 = 当前自由电子数 */
+  private orbitElectrons: OrbitSatellite[] = [];
+  private static readonly ORBIT_ELECTRON_SLOTS = 5;
   private orbitColor = 0x67e8f9;
   private glowSmoothX: number[] = [];
   private glowSmoothY: number[] = [];
@@ -500,6 +512,7 @@ export class GameScene extends Phaser.Scene {
     this.buildStatusPanel();
     overlay.classList.add('show');
     this.statusPanelOpen = true;
+    this.tutorial?.notifyStatusPanel();
     this.scene.pause();
   }
 
@@ -536,6 +549,7 @@ export class GameScene extends Phaser.Scene {
           ${row('自由电子', `${gameState.freeElectrons} / ${gameState.maxFreeElectrons}${st.overloaded ? ' · 过载中！' : ''}`)}
           ${row('伤害倍率', `×${(st.damageMult * this.gearDamageMult * this.weaponMods.damageMult).toFixed(2)}`)}
           ${row('电子压制', `×${pressure.toFixed(2)}（伤害%已转译）`)}
+          ${row('催化层数', gameState.reactionLayers + ' / ' + BALANCE.reaction.layerCap + '（伤害 +' + (BALANCE.reaction.damagePerLayer * gameState.reactionLayers * 100).toFixed(1) + '%）')}
           <h2>机动与节奏</h2>
           ${row('移速加成', `+${moveBonus}%${load.band.speedMult < 1 ? `（负载 -${Math.round((1 - load.band.speedMult) * 100)}%）` : ''}`)}
           ${row('冷却缩减', `${cdRed}%`)}
@@ -546,6 +560,7 @@ export class GameScene extends Phaser.Scene {
         <div class="status-col">
           <h2>祝福（${gameState.equippedBoons.length}/4）</h2>
           <div class="status-boons">${boonHtml}</div>
+          ${row('本局禁用', gameState.disabledBoons.map((id) => getBoonDef(id)?.name ?? id).join('、') || '无')}
           <h2>装备（携带出击 · 死亡丢失）</h2>
           <div class="status-gear">${gearHtml}</div>
           <h2>战利品</h2>
@@ -602,6 +617,8 @@ export class GameScene extends Phaser.Scene {
   public create(): void {
     this.input.mouse?.disableContextMenu();
     resetRun();
+    // 本局禁用祝福（卫戍协议「每局禁用盟约」简化版）：强制换 build 防背版
+    gameState.disabledBoons = sampleDisabledBoons(BOON_POOL, BALANCE.upgrades.runDisabledCount);
     this.resetBoonState();
     // 状态面板：TAB 开关（窗口级监听，场景暂停时依然可用），遮罩点击空白处关闭
     this.input.keyboard?.addCapture('TAB');
@@ -617,6 +634,8 @@ export class GameScene extends Phaser.Scene {
         this.statusPanelOpen = false;
         document.getElementById('status-overlay')?.classList.remove('show');
       }
+      this.tutorial?.destroy();
+      this.tutorial = null;
     });
     // 从 ProfileState 恢复染色工作台的染料搭配（主/副 → 混色底槽）
     const equipped = dyes.find((d) => d.id === profileState.equippedDyeId);
@@ -653,6 +672,9 @@ export class GameScene extends Phaser.Scene {
     this.gearDrops = [];
     this.boss = null;
     this.orbitRings = [];
+    this.reactionMilestoneBonus = 0;
+    this.claimedMilestones = 0;
+    this.sfxLimiter.reset();
     this.reactionPairs = [];
     this.dashCount = 0;
     this.dashNextReadyTimer = 0;
@@ -734,6 +756,9 @@ export class GameScene extends Phaser.Scene {
     this.createWorldBoundary();
     this.createOrbitSystem();
     this.startRun();
+    // 新手引导：在 startRun 之后启动（首次运行逐步骤引导，老玩家自动跳过）
+    this.tutorial = new TutorialController(this);
+    this.tutorial.start();
     // 战斗 BGM：与大厅共享同一播放池（已在播则续播，不叠加）
     this.bgm = new BgmManager(this);
     this.bgm.start();
@@ -801,6 +826,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const dt = delta / 1000;    // 命中定格：命中瞬间短暂冻结世界，强化打击感
+    // 新手引导：条件轮询 + 高亮动画（放在定格早退之前，冻结期间引导仍可见）
+    this.tutorial?.update(dt);
     // 氧化态/还原态修正每帧重算：电子数变化立即反映到伤害、移速、冷却与护盾。
     // 过载是温度机制：超过第二阈值（过热线）即触发，与自由电子是否满仓无关
     this.electronState = describeElectronState(
@@ -1172,6 +1199,8 @@ export class GameScene extends Phaser.Scene {
 
   /** 按反馈等级施加定格 + 屏震 + 缩放冲击，集中入口避免各调用点自行拼数值。 */
   private applyFeedback(tier: FeedbackTier): void {
+    // 教程条件：对敌伤害（排除玩家受击/熔毁的自伤反馈）
+    if (tier !== 'playerHurt' && tier !== 'meltdown') this.tutorial?.notifyAttackHit();
     const spec = FEEDBACK[tier];
     if (spec.hitStop > 0) this.applyHitStop(spec.hitStop);
     if (spec.shakeIntensity > 0) this.cameraShake(spec.shakeDuration, spec.shakeIntensity);
@@ -1185,6 +1214,35 @@ export class GameScene extends Phaser.Scene {
   private playerFilterGlow: Phaser.Filters.Glow | null = null;
   /** 氧化态/还原态修正（§2.1）：每帧由电子账目推导，供伤害/移速/冷却/护盾/过载消费。 */
   private electronState: ElectronState = describeElectronState(1, 1, 0, 2);
+  /** 反应催化：里程碑永久加成与已领进度（每局重置） */
+  private reactionMilestoneBonus = 0;
+  private claimedMilestones = 0;
+  /** 音效四重节流（总并发/单源冷却/全局间隔/叠音上限） */
+  private sfxLimiter = new SfxLimiter();
+  /** 反应层数全局伤害倍率 */
+  private reactionDamageMult(): number {
+    return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
+  }
+
+  /** 电子转移累积催化层数：999 封顶，里程碑按序领取并结算奖励。 */
+  private gainReactionLayers(gain: number): void {
+    if (gain <= 0) return;
+    gameState.reactionLayers = addLayers(gameState.reactionLayers, gain, BALANCE.reaction.layerCap);
+    const claim = claimMilestones(gameState.reactionLayers, this.claimedMilestones, BALANCE.reaction.milestones);
+    this.claimedMilestones = claim.claimedCount;
+    for (const m of claim.rewards) {
+      switch (m.reward) {
+        case 'samples': gameState.samples = Math.min(gameState.bagCapacity, gameState.samples + m.amount); break;
+        case 'electron': gameState.freeElectrons = Math.min(gameState.maxFreeElectrons, gameState.freeElectrons + m.amount); break;
+        case 'cool': gameState.temperature = Math.max(0, gameState.temperature - m.amount); break;
+        case 'damage': this.reactionMilestoneBonus += m.amount; break;
+      }
+      this.showFloatingText(this.player.x, this.player.y - 128, '⚗ 催化里程碑：' + m.label, '#5CFFB1');
+      this.playSfx('sfx-liang', 0.7);
+    }
+  }
+  /** 新手引导（仅首次运行激活，完成/跳过后永久关闭） */
+  private tutorial: TutorialController | null = null;
   /** 过载自损的按秒累加器。 */
   private overloadTickTimer = 0;
   /** 当前武器的等级/形态修正（每帧刷新，供射程、范围、放热、自损消费）。 */
@@ -1280,8 +1338,13 @@ export class GameScene extends Phaser.Scene {
       diamond(halfTileW * 2, halfTileH * 2);
       canvasTex!.refresh();
     }
-    this.add.tileSprite(this.diamondCx, this.diamondCy, this.worldWidth, this.worldHeight, texKey)
+    const gridTile = this.add.tileSprite(this.diamondCx, this.diamondCy, this.worldWidth, this.worldHeight, texKey)
       .setAlpha(0.55);
+    // 网格呼吸：6.5s 极缓明暗振荡，实验室「通电」感（不新增绘制调用）
+    this.tweens.add({
+      targets: gridTile, alpha: { from: 0.45, to: 0.62 },
+      duration: 6500, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+    });
     this.add.rectangle(this.diamondCx, this.diamondCy, this.worldWidth, this.worldHeight, 0x06131e, 0.12)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(-1);
@@ -1311,8 +1374,22 @@ export class GameScene extends Phaser.Scene {
       { radius: 72, tiltX: 1.08, spinSpeed: -0.85, speed: 2.4, phase: 2.1 },
       { radius: 112, tiltX: 0.78, spinSpeed: 0.32, speed: 1.05, phase: 4.3 }
     ];
-    configs.forEach((config, i) => {
+    configs.forEach((config) => {
       const graphics = this.add.graphics().setDepth(-2);
+      this.orbitRings.push({ ...config, spin: 0, graphics });
+    });
+    // 场景重启会重跑 create：销毁上一轮卫星再重建，避免池翻倍累积
+    for (const sat of this.orbitElectrons) {
+      sat.electron.destroy();
+      sat.glow.destroy();
+      sat.glowLayers.forEach((gl) => gl.destroy());
+      sat.innerHalo.destroy();
+      sat.outerHalo.destroy();
+    }
+    this.orbitElectrons = [];
+    // 卫星池：5 槽位（= 商店扩容后的自由电子上限），显示数量实时跟随 gameState.freeElectrons。
+    // 电子是自由电子的实体化：拾取/消耗时淡入淡出，「电子即生命」在角色身上直接可读。
+    for (let i = 0; i < GameScene.ORBIT_ELECTRON_SLOTS; i += 1) {
       const glow = this.add.circle(0, 0, 18, this.orbitColor, profile.glowAlpha * 0.35)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(6);
@@ -1331,10 +1408,10 @@ export class GameScene extends Phaser.Scene {
       const outerHalo = this.add.circle(0, 0, 36, this.orbitColor, 0.04)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(5);
-      this.orbitRings.push({ ...config, spin: 0, graphics, electron, glow, glowLayers, innerHalo, outerHalo });
+      this.orbitElectrons.push({ electron, glow, glowLayers, innerHalo, outerHalo, alpha: 0 });
       this.glowSmoothX[i] = 0;
       this.glowSmoothY[i] = 0;
-    });
+    }
     this.updateOrbitSystem(0);
   }
 
@@ -1368,7 +1445,7 @@ export class GameScene extends Phaser.Scene {
     const electronAlpha = Phaser.Math.Clamp((0.55 + 0.45 * hpRatio) * params.electronAlpha, 0, 1);
     const jx = params.jitter > 0 ? Phaser.Math.FloatBetween(-params.jitter, params.jitter) : 0;
     const jy = params.jitter > 0 ? Phaser.Math.FloatBetween(-params.jitter, params.jitter) : 0;
-    this.orbitRings.forEach((ring, ringIndex) => {
+    this.orbitRings.forEach((ring) => {
       ring.spin += ring.spinSpeed * params.spinMultiplier * dt;
       ring.graphics.clear();
       ring.graphics.lineStyle(2.5, lineColor, params.lineAlpha);
@@ -1381,47 +1458,69 @@ export class GameScene extends Phaser.Scene {
         this.orbitPts[index].set(cx + p.x + jx, cy + p.y + jy);
       }
       ring.graphics.strokePoints(this.orbitPts, true);
-      const angle = this.time.now * 0.001 * ring.speed + ring.phase;
+    });
+    // 卫星数量 = 当前自由电子数（电子即生命的实体化），获得/消耗时淡入淡出
+    const visibleCount = Phaser.Math.Clamp(gameState.freeElectrons, 0, this.orbitElectrons.length);
+    this.orbitElectrons.forEach((sat, satIndex) => {
+      const targetAlpha = satIndex < visibleCount ? electronAlpha : 0;
+      sat.alpha += (targetAlpha - sat.alpha) * Math.min(1, dt * 14);
+      if (sat.alpha < 0.02) {
+        sat.electron.setVisible(false);
+        sat.glow.setVisible(false);
+        sat.glowLayers.forEach((g) => g.setVisible(false));
+        sat.innerHalo.setVisible(false);
+        sat.outerHalo.setVisible(false);
+        return;
+      }
+      const ring = this.orbitRings[satIndex % this.orbitRings.length];
+      // 同环上的卫星按可见数均分相位，多颗电子不叠影
+      const angle = this.time.now * 0.001 * ring.speed + ring.phase + (satIndex * Math.PI * 2) / Math.max(visibleCount, 1);
       const p = this.projectOrbit(ring, angle);
       const depthScale = 0.8 + ((p.z / ring.radius) + 1) * 0.35;
       const targetX = cx + p.x + jx;
       const targetY = cy + p.y + jy;
       const smooth = 0.35;
-      this.glowSmoothX[ringIndex] += (targetX - this.glowSmoothX[ringIndex]) * smooth;
-      this.glowSmoothY[ringIndex] += (targetY - this.glowSmoothY[ringIndex]) * smooth;
-      const gx = this.glowSmoothX[ringIndex];
-      const gy = this.glowSmoothY[ringIndex];
-      ring.electron
+      this.glowSmoothX[satIndex] += (targetX - this.glowSmoothX[satIndex]) * smooth;
+      this.glowSmoothY[satIndex] += (targetY - this.glowSmoothY[satIndex]) * smooth;
+      const gx = this.glowSmoothX[satIndex];
+      const gy = this.glowSmoothY[satIndex];
+      const a = sat.alpha;
+      sat.electron
+        .setVisible(true)
         .setPosition(targetX, targetY)
         .setDepth(p.z > 0 ? 7 : -4)
         .setScale(depthScale * params.electronScale)
-        .setAlpha(electronAlpha)
+        .setAlpha(a)
         .setFillStyle(flicker ? 0xffffff : 0xfde047);
-      ring.glow
+      sat.glow
+        .setVisible(true)
         .setPosition(gx, gy)
         .setDepth(p.z > 0 ? 6 : -3)
         .setScale(depthScale * params.electronScale * 1.08)
         .setFillStyle(this.orbitColor, quality.glowAlpha * 0.35)
-        .setAlpha(quality.bloomEnabled ? electronAlpha * quality.glowAlpha * 0.6 : 0);
-      ring.glowLayers.forEach((glow, index) => {
+        .setAlpha(quality.bloomEnabled ? a * quality.glowAlpha * 0.6 : 0);
+      sat.glowLayers.forEach((glow, index) => {
         const enabled = quality.bloomEnabled && index < quality.glowLayers;
-        glow.setPosition(gx, gy)
+        glow.setVisible(true)
+          .setPosition(gx, gy)
           .setDepth(p.z > 0 ? 5 : -2)
           .setScale(depthScale * params.electronScale * (1.08 + index * 0.25))
           .setFillStyle(this.orbitColor, quality.glowAlpha * (0.25 - index * 0.08))
-          .setAlpha(enabled ? electronAlpha * quality.glowAlpha * 0.4 / (index + 1.8) : 0);
+          .setAlpha(enabled ? a * quality.glowAlpha * 0.4 / (index + 1.8) : 0);
       });
-      const haloPulse = 0.8 + 0.2 * Math.sin(this.time.now * 0.003 + ringIndex * 2.1);
-      ring.innerHalo
+      const haloPulse = 0.8 + 0.2 * Math.sin(this.time.now * 0.003 + satIndex * 2.1);
+      sat.innerHalo
+        .setVisible(true)
         .setPosition(gx, gy)
         .setDepth(p.z > 0 ? 5 : -2)
         .setScale(depthScale * params.electronScale * 0.85 * haloPulse)
-        .setAlpha(quality.bloomEnabled ? electronAlpha * 0.08 : 0);
-      ring.outerHalo
+        .setAlpha(quality.bloomEnabled ? a * 0.08 : 0);
+      sat.outerHalo
+        .setVisible(true)
         .setPosition(gx, gy)
         .setDepth(p.z > 0 ? 4 : -3)
-        .setScale(depthScale * params.electronScale * (2.2 + 0.3 * Math.sin(this.time.now * 0.002 + ringIndex)))
-        .setAlpha(quality.bloomEnabled ? electronAlpha * 0.05 : 0);
+        .setScale(depthScale * params.electronScale * (2.2 + 0.3 * Math.sin(this.time.now * 0.002 + satIndex)))
+        .setAlpha(quality.bloomEnabled ? a * 0.05 : 0);
     });
   }
 
@@ -1738,7 +1837,7 @@ export class GameScene extends Phaser.Scene {
     }
     const hpScale = (getLayerHpScale(room.layer) + this.runWaveCounter * 0.18) * (cfg.elite ? 2 : 1);
     const speedBonus = getLayerSpeedScale(room.layer) + (cfg.elite ? 14 : 0);
-    const roster = buildComposition(cfg, cfg.count);
+    const roster = buildComposition(cfg, cfg.count, Math.random, BALANCE.combat.equivalentSwapChance);
     for (const def of roster) {
       let angle = Math.random() * Math.PI * 2;
       let dist = 600 + Math.random() * 800;
@@ -1925,6 +2024,7 @@ export class GameScene extends Phaser.Scene {
   /** 生成祝福选项：排除已满级（Lv.3）的祝福，避免玩家选到无收益的选项。 */
   private rollBoonChoices(count: number): BoonDef[] {
     const maxed = new Set(gameState.equippedBoons.filter((b) => b.level >= 2).map((b) => b.id));
+    for (const id of gameState.disabledBoons) maxed.add(id); // 本局禁用祝福不进卡池
     const picked = pickBoons(count, Math.random, maxed);
     return picked.length > 0 ? picked : pickBoons(count);
   }
@@ -2096,6 +2196,7 @@ export class GameScene extends Phaser.Scene {
   private electronPressureBonus(mode: 'oxidized' | 'reduced'): number {
     const w = this.weaponMods;
     const mult = this.electronState.damageMult * this.gearDamageMult * w.damageMult
+      * this.reactionDamageMult()
       * (mode === 'oxidized' ? w.oxidizeMult : w.reduceMult);
     return Math.max(0, mult - 1);
   }
@@ -2113,6 +2214,7 @@ export class GameScene extends Phaser.Scene {
       if (mode === 'oxidized') {
         if (orbit.count <= 0) return;
         annihilatePair(orbit);
+        this.gainReactionLayers(1);
         onElectron();
       } else {
         const result = captureElectron(orbit);
@@ -2127,6 +2229,7 @@ export class GameScene extends Phaser.Scene {
       if (mode === 'oxidized') {
         if (orbit.count <= 0) return;
         annihilatePair(orbit);
+        this.gainReactionLayers(1);
         onElectron();
       } else {
         const result = captureElectron(orbit);
@@ -2365,10 +2468,23 @@ export class GameScene extends Phaser.Scene {
   private stealElectrons(target: RuntimeEnemy, count: number, color = '#FF5C7A'): void {
     if (!target.orbit || target.dead || !target.view.visible) return;
     const n = Math.floor(count);
+    // 失控取消：对高储备目标单发夺取超限 → 整击取消（卫戍协议「取消而非截断」）
+    if (isRunawayCancel(n, target.orbit.count, target.orbit.capacity, {
+      threshold: BALANCE.combat.runawayCancelThreshold,
+      fullRatio: BALANCE.combat.runawayFullRatio
+    })) {
+      this.showFloatingText(target.view.x, target.view.y - 70, '⚠ 临界失控 · 反应取消', '#FF4D6D');
+      this.playSfx('sfx-duong', 0.8);
+      emit('reaction', { type: 'runaway' });
+      return;
+    }
+    let stolen = 0;
     for (let i = 0; i < n && target.orbit.count > 0; i++) {
       annihilatePair(target.orbit);
+      stolen += 1;
       this.showElectronDelta(target.view.x + (i + 1) * 12, target.view.y - 56, -1, color);
     }
+    this.gainReactionLayers(stolen);
     if (target.orbit.count <= 0) this.breakLayerOrKill(target);
   }
 
@@ -2981,8 +3097,10 @@ export class GameScene extends Phaser.Scene {
       .setColor(color)
       .setAlpha(0)
       .setScale(1);
+    const drift = Phaser.Math.Between(-12, 12);
+    t.x += drift;
     this.tweens.add({
-      targets: t, alpha: { from: 0, to: 1 }, y: y - 40, duration: 900, ease: 'Cubic.out',
+      targets: t, alpha: { from: 0, to: 1 }, x: t.x + drift * 1.5, y: y - 40, duration: 900, ease: 'Cubic.out',
       onComplete: () => this.recycleCombatText(t)
     });
   }
@@ -3935,7 +4053,7 @@ export class GameScene extends Phaser.Scene {
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
     const oxidizedBoost = electronBoost > 0 && gameState.mode === 'oxidized';
     const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonAoeMult * this.weaponMods.rangeMult * (1 + 0.12 * electronBoost);
-    const baseDmg = 18 * (1 + 0.25 * electronBoost) * this.electronState.damageMult;
+    const baseDmg = 18 * (1 + 0.25 * electronBoost) * this.electronState.damageMult * this.reactionDamageMult();
     const sweepHalf = Math.PI; // 360° 全周
     const perSlashMs = 320;
 
@@ -4286,19 +4404,23 @@ export class GameScene extends Phaser.Scene {
    */
   private showElectronDelta(x: number, y: number, delta: number, color: string, hud = false): void {
     if (delta === 0) return;
+    // 量级分级（卫戍协议 fx 排版语言）：大额数字放大强调；随机水平漂移让相邻数字永不互相遮挡
+    const big = Math.abs(delta) >= 4;
+    const drift = Phaser.Math.Between(-16, 16);
     const label = this.obtainCombatText();
-    label.setFontSize(20 * this.uiScale)
-      .setPosition(x, y)
+    label.setFontSize((big ? 27 : 20) * this.uiScale)
+      .setPosition(x + drift, y)
       .setText(`${delta > 0 ? '+' : ''}${delta} e\u207B`)
       .setColor(color)
       .setAlpha(1)
-      .setScale(1.5);
+      .setScale(big ? 1.85 : 1.5);
     this.tweens.add({
       targets: label,
-      y: y - 46,
+      x: x + drift * 2.2,
+      y: y - (big ? 62 : 46),
       alpha: 0,
-      scale: { from: 1.5, to: 1 },
-      duration: 640,
+      scale: { from: big ? 1.85 : 1.5, to: big ? 1.15 : 1 },
+      duration: big ? 780 : 640,
       ease: 'Cubic.out',
       onComplete: () => this.recycleCombatText(label)
     });
@@ -4316,6 +4438,8 @@ export class GameScene extends Phaser.Scene {
   /** 播放已加载的音效资源（受设置中音量/音效开关控制） */
   private playSfx(key: string, volume = 1, rate = 1): void {
     if (!getSettings().effectsEnabled) return;
+    // 四重节流：总并发 8 / 单源冷却 160ms / 全局间隔 45ms / 叠音上限 2（借鉴卫戍协议 SfxLimiter）
+    if (!this.sfxLimiter.tryPlay(key, this.time.now)) return;
     try {
       this.sound.play(key, { volume: volume * (getSettings().volume / 100), rate });
     } catch { /* 音频不可用时静默 */ }
@@ -4680,6 +4804,7 @@ export class GameScene extends Phaser.Scene {
     target.orbitArcs[index] = moved;
     // 一次有效击中形成一对：仅抵消一颗
     annihilatePair(orbit);
+    this.gainReactionLayers(1);
     // 电子对立即从轨道脱离：对应轨道槽位渐隐
     this.tweens.add({
       targets: arc,
@@ -5172,16 +5297,18 @@ export class GameScene extends Phaser.Scene {
     gameState.ehp = 0;
     this.playerBody.setAcceleration(0, 0);
     this.playerBody.setVelocity(0, 0);
-    this.orbitRings.forEach((ring) => {
+    this.orbitElectrons.forEach((sat) => {
       this.tweens.add({
-        targets: ring.electron,
-        x: ring.electron.x + Phaser.Math.Between(-160, 160),
-        y: ring.electron.y + Phaser.Math.Between(-160, 160),
+        targets: sat.electron,
+        x: sat.electron.x + Phaser.Math.Between(-160, 160),
+        y: sat.electron.y + Phaser.Math.Between(-160, 160),
         alpha: 0,
         duration: 600,
         ease: 'Cubic.out'
       });
-      this.tweens.add({ targets: ring.glow, alpha: 0, duration: 300 });
+      this.tweens.add({ targets: sat.glow, alpha: 0, duration: 300 });
+    });
+    this.orbitRings.forEach((ring) => {
       this.tweens.add({ targets: ring.graphics, alpha: 0, duration: 500 });
     });
     this.tweens.add({
@@ -5999,6 +6126,18 @@ export class GameScene extends Phaser.Scene {
 
   /** 特殊攻击强化（氧化态）：额外夺取 Boss 轨道电子，并结算击败判定。 */
   private stealBossElectrons(boss: RuntimeBoss, count: number): void {
+    // 失控取消：Boss 同样受「过量试剂」规则约束（单发 ≥ 阈值且储备 ≥80%）
+    const bossCap = boss.orbits.reduce((sum, o) => sum + o.capacity, 0);
+    if (isRunawayCancel(count, this.bossElectronCount(boss), bossCap, {
+      threshold: BALANCE.combat.runawayCancelThreshold,
+      fullRatio: BALANCE.combat.runawayFullRatio
+    })) {
+      this.showFloatingText(boss.view.x, boss.view.y - 220, '⚠ 临界失控 · 反应取消', '#FF4D6D');
+      this.playSfx('sfx-duong', 0.8);
+      emit('reaction', { type: 'runaway' });
+      return;
+    }
+    let stolen = 0;
     for (let i = 0; i < count; i += 1) {
       const layer = this.pickBossOrbitLayer(boss, boss.view.x, boss.view.y);
       const orbit = boss.orbits[layer];
@@ -6007,7 +6146,9 @@ export class GameScene extends Phaser.Scene {
       const arc = boss.orbitArcs[layer][orbit.count];
       this.tweens.add({ targets: arc, alpha: 0, scale: 0.3, duration: 220, onComplete: () => arc.setVisible(false) });
       this.showElectronDelta(boss.view.x, boss.view.y - 190, -1, '#67E8F9');
+      stolen += 1;
     }
+    this.gainReactionLayers(stolen);
     this.playTone(500, 0.06, 'square', 0.05);
     this.checkBossDefeated(boss);
   }
@@ -6133,6 +6274,7 @@ export class GameScene extends Phaser.Scene {
    * 还原态因此成为本作唯一的主动控温手段——高热时的安全模式。
    */
   private coolFromReduction(x: number, y: number): void {
+    this.gainReactionLayers(1); // 还原注入 = 催化层数 +1
     const before = gameState.temperature;
     gameState.temperature = Phaser.Math.Clamp(gameState.temperature - BALANCE.temperature.reduceCoolPerCapture, 0, 100);
     if (gameState.temperature === before) return;
@@ -6152,6 +6294,7 @@ export class GameScene extends Phaser.Scene {
 
   private toggleMode(): void {
     haptic(20);
+    this.tutorial?.notifyModeSwitched();
     this.reactionPairs.forEach((p) => { p.mine.destroy(); p.theirs.destroy(); });
     this.reactionPairs = [];
     const nextMode = gameState.mode === 'oxidized' ? 'reduced' : 'oxidized';
@@ -6422,6 +6565,27 @@ export class GameScene extends Phaser.Scene {
           ease: 'Sine.inOut'
         });
       }
+    }
+    // 环境尘埃：微量上浮微粒（世界坐标、可裁剪、极低透明度）——空气在动的实验室感
+    const dustCount = Math.max(6, Math.round(profile.fogParticlesPerSpot));
+    for (let di = 0; di < dustCount; di += 1) {
+      const dx = Math.random() * this.worldWidth;
+      const dy = Math.random() * this.worldHeight;
+      const mote = this.add.circle(dx, dy, Phaser.Math.FloatBetween(1.2, 2.8), 0x9fd8e8, 0.12)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(-1);
+      this.registerCullable(mote, 0, 120);
+      this.tweens.add({
+        targets: mote,
+        y: dy - Phaser.Math.Between(60, 150),
+        x: dx + Phaser.Math.Between(-40, 40),
+        alpha: { from: 0.03, to: 0.16 },
+        duration: Phaser.Math.Between(6000, 13000),
+        yoyo: true,
+        repeat: -1,
+        delay: Math.random() * 3000,
+        ease: 'Sine.inOut'
+      });
     }
     // 战斗布景：Chemic 花/石/蘑菇/炼金台密集贴地（原尺寸、贴着地面、跟随相机）
     // 约束：落在菱形地图内（|dx|/A+|dy|/B<=0.92）、彼此间距 >= 120、不进中心出生区；密度相对原 34 -50%

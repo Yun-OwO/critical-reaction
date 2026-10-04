@@ -45,6 +45,8 @@ export interface ProfileState {
   warehouse: GearWarehouse;
   /** 携带槽：出击时生效的装备，死亡时从仓库扣除（搜打撤的得失来源）。 */
   loadout: GearLoadout;
+  /** 新手引导是否已完成/跳过（完成或跳过后永久关闭） */
+  tutorialDone: boolean;
 }
 
 export const profileState: ProfileState = {
@@ -58,7 +60,8 @@ export const profileState: ProfileState = {
   weaponLevels: Object.fromEntries(weapons.map((w) => [w.id, 1])),
   weaponForms: Object.fromEntries(weapons.map((w) => [w.id, null])),
   warehouse: {},
-  loadout: defaultLoadout()
+  loadout: defaultLoadout(),
+  tutorialDone: false
 };
 
 /** 从 indexedDB 异步加载档案（返回是否成功加载到数据）。 */
@@ -119,6 +122,7 @@ export async function loadProfileFromStorage(): Promise<boolean> {
     // 旧存档没有这两个字段：normalize* 会把缺失/非法数据清洗成空仓库与空携带槽
     profileState.warehouse = normalizeWarehouse(stored.warehouse);
     profileState.loadout = normalizeLoadout(stored.loadout, profileState.warehouse);
+    profileState.tutorialDone = stored.tutorialDone === true;
     return true;
   } catch {
     return false;
@@ -138,7 +142,8 @@ export async function saveProfile(): Promise<void> {
       weaponLevels: profileState.weaponLevels,
       weaponForms: profileState.weaponForms,
       warehouse: profileState.warehouse,
-      loadout: profileState.loadout
+      loadout: profileState.loadout,
+      tutorialDone: profileState.tutorialDone
     });
   } catch {
     return;

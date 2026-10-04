@@ -216,6 +216,19 @@ export function getBoonDef(id: string): BoonDef | undefined {
 }
 
 /**
+ * 每局随机禁用 N 个不同祝福 id（卫戍协议「每局禁用盟约」简化版）：
+ * 强制每局换 build、防背版。Fisher-Yates 洗牌后取前 N。
+ */
+export function sampleDisabledBoons(pool: BoonDef[], count: number, rng: () => number = Math.random): string[] {
+  const ids = Array.from(new Set(pool.map((b) => b.id)));
+  for (let i = ids.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  return ids.slice(0, Math.min(count, ids.length));
+}
+
+/**
  * 从祝福池中随机选取 n 个不重复的祝福，保证槽位/学派多样性。
  * 优先覆盖不同槽位，其次不同学派。
  */

@@ -65,6 +65,10 @@ export interface GameState {
   runComplete: boolean;
   /** 已装备的祝福（4 个槽位各 1 个）。 */
   equippedBoons: EquippedBoon[];
+  /** 反应催化层数（电子转移累积，999 封顶；全局伤害线性加成+里程碑掉落）。 */
+  reactionLayers: number;
+  /** 本局禁用的祝福 id（每局随机抽样，强制换 build 防背版）。 */
+  disabledBoons: string[];
   /** 染色槽：主/副/底（100%/50%/25%效果）。 */
   dyeSlots: [DyeSlot, DyeSlot, DyeSlot];
   /** 背包容量（§4.3 负载系统）：携带样本量 / 容量 决定移速与冲刺冷却。 */
@@ -109,6 +113,10 @@ export const gameState: GameState = {
   finalBossActive: false,
   runComplete: false,
   equippedBoons: [],
+  /** 反应催化层数（电子转移累积，999 封顶；全局伤害线性加成+里程碑） */
+  reactionLayers: 0,
+  /** 本局禁用的祝福 id（每局随机抽样，强制换 build 防背版） */
+  disabledBoons: [] as string[],
   dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
   bagCapacity: BASE_BAG_CAPACITY,
   carriedGear: []
@@ -184,6 +192,8 @@ export function resetRun(): void {
     finalBossActive: false,
     runComplete: false,
     equippedBoons: [],
+    reactionLayers: 0,
+    disabledBoons: [],
     dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
     bagCapacity: BASE_BAG_CAPACITY,
     carriedGear: []

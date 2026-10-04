@@ -298,7 +298,7 @@ export class UIScene extends Phaser.Scene {
     }).setDepth(12).setAlpha(0);
 
     this.unlisten = [
-      on('reaction', () => { haptic(20); this.showEvent('反应触发 · 温度上升'); }),
+      on('reaction', (payload) => { const p = payload as { type?: string }; haptic(20); this.showEvent(p?.type === 'runaway' ? '⚠ 临界失控 · 反应取消' : '反应触发 · 温度上升'); }),
       on('extraction', (payload) => {
         haptic(25);
         const result = payload as { success?: boolean };
@@ -470,7 +470,7 @@ export class UIScene extends Phaser.Scene {
     const loadWarn = load.band.speedMult < 1 ? ` · 移速 ${Math.round(load.band.speedMult * 100)}%` : '';
     // 搜打撤：局内战利品数量（撤离成功才带得出去，死亡丢失）
     const lootNote = gameState.carriedGear.length > 0 ? ` · 战利品 ${gameState.carriedGear.length}` : '';
-    setTextSafe(this.dyeText, `样本 ${gameState.samples}/${gameState.bagCapacity} · 负载 ${load.percent}% ${load.band.label}${loadWarn}${lootNote}   [R] 切换氧化/还原`);
+    setTextSafe(this.dyeText, `样本 ${gameState.samples}/${gameState.bagCapacity} · 负载 ${load.percent}% ${load.band.label}${loadWarn}${lootNote}${gameState.reactionLayers > 0 ? ` · 催化 L${gameState.reactionLayers}` : ''}   [R] 切换氧化/还原`);
     setColorSafe(this.dyeText, load.band.speedMult < 0.75 ? '#FF8A4C' : load.band.speedMult < 1 ? '#FFD199' : hexString(BASE_COLORS.text));
     this.refreshDyeChips();
     setTextSafe(this.dashText, gameState.dashCd > 0 ? `冲刺冷却 ${gameState.dashCd.toFixed(1)}s` : this.isMobile ? '冲刺就绪' : '冲刺就绪 [鼠标右键]');
@@ -656,6 +656,11 @@ export class UIScene extends Phaser.Scene {
   private hudRightEdge(W: number, s: number): number {
     const layout = this.controlLayout;
     return hudRightEdge(W - 40 * s, layout ? layout.clusterLeft : 0, 12 * s, this.isMobile && !!layout);
+  }
+
+  /** 触摸控件布局（只读访问：新手引导需要在对应按钮上画高亮光环）。 */
+  public getControlLayout(): TouchControlLayout | null {
+    return this.controlLayout;
   }
 
   private buildTouchControls(): void {

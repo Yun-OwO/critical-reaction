@@ -109,7 +109,37 @@ export const BALANCE = {
     /** 伤害数字上限展示（超过则折叠为 "999+"，避免长数字糊住战斗区） */
     damageNumberCap: 999,
     /** 命中定格期间钟停上限，防止祝福叠满后顿感变卡顿 */
-    maxHitStop: 0.12
+    maxHitStop: 0.12,
+    /**
+     * 失控取消（卫戍协议 11-limits「取消而非截断」的同款规则）：对电子储备 ≥80%
+     * 的目标单发夺取 ≥7 颗 → 整击取消（一颗都拿不到）。无限堆单发倍率反而亏输出，
+     * 正确打法是先普攻削储备再倾泻爆发——把数值上限做成负向决策。
+     */
+    runawayCancelThreshold: 7,
+    runawayFullRatio: 0.8,
+    /** 波次等价替换（卫戍协议 08「换怪不换难度」）：加权抽中后按此概率换成战力相近的同类敌人 */
+    equivalentSwapChance: 0.5,
+    /** 等价替换的战力容差（±25% 内视为等价） */
+    equivalentSwapTolerance: 0.25
+  },
+  /** 反应层数（借鉴 bonds 层系统）：电子转移累积催化层数，全局线性加成 + 里程碑掉落 */
+  reaction: {
+    /** 每层全局伤害 +0.2%（线性，不设乘区叠加，防指数崩坏） */
+    damagePerLayer: 0.002,
+    /** 反失控硬上限：999 层后不再增长 */
+    layerCap: 999,
+    /** 里程碑掉落：按序领取，层数只增不减 */
+    milestones: [
+      { at: 25, reward: 'samples', amount: 10, label: '样本 +10' },
+      { at: 50, reward: 'electron', amount: 1, label: '自由电子 +1' },
+      { at: 100, reward: 'cool', amount: 30, label: '降温 30°' },
+      { at: 200, reward: 'damage', amount: 0.10, label: '永久伤害 +10%' },
+      { at: 400, reward: 'electron', amount: 2, label: '自由电子 +2' }
+    ] as const
+  },
+  /** 祝福池局内禁用（卫戍协议「每局随机禁用盟约」）：强制每局换 build、防背版 */
+  upgrades: {
+    runDisabledCount: 2
   }
 } as const;
 

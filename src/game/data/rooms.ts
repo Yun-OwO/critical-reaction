@@ -146,6 +146,40 @@ export const COMBAT_POOL: RoomEnemyDef[] = [
   { key: 'catalyst',     kind: 'shielder', baseHp: 65, baseSpeed: 52, weight: 0.5 }
 ];
 
+/**
+ * 敌人战力（借鉴卫戍协议 waves 的 BE 公式「换怪不换难度」）：
+ * BE = 基础 HP × 行为威胁系数（远程/召唤/治疗类比同血量近战更危险）。
+ * 等价替换时按 BE 相近选怪，保证换种类不漂移难度。
+ */
+const KIND_THREAT: Record<string, number> = {
+  chaser: 1.0, ranged: 1.2, tank: 1.1, acid: 1.0,
+  healer: 1.3, sniper: 1.25, summoner: 1.35, shielder: 1.2
+};
+
+export function battlePower(def: RoomEnemyDef): number {
+  return def.baseHp * (KIND_THREAT[def.kind] ?? 1);
+}
+
+/**
+ * 战力等价替换：从池中挑一个 BE 在 ±tolerance 内、key 不同的敌人随机替换；
+ * 无候选时原样返回。调用方控制触发概率（换怪保持总战力与刷新窗口不变）。
+ */
+export function equivalentSwap(
+  def: RoomEnemyDef,
+  pool: RoomEnemyDef[],
+  rng: () => number = Math.random,
+  tolerance = 0.25
+): RoomEnemyDef {
+  const base = battlePower(def);
+  const candidates = pool.filter((d) => {
+    if (d.key === def.key) return false;
+    const power = battlePower(d);
+    return Math.abs(power - base) <= base * tolerance;
+  });
+  if (candidates.length === 0) return def;
+  return candidates[Math.floor(rng() * candidates.length) % candidates.length];
+}
+
 let nextRoomId = 1;
 
 /** 生成房间战斗波次配置。 */
@@ -173,9 +207,16 @@ export function makeEliteWaves(layer: number): RoomWaveConfig[] {
 
 /**
  * 组装一波敌人：count >= 3 时强制包含近战/远程/坦克各一，
- * 其余按 weight 加权填充，返回长度恰为 count。
+ * 其余按 weight 加权填充（加权位按 swapChance 概率做战力等价替换），
+ * 返回长度恰为 count。等价替换 = 卫戍协议「换怪不换难度」：替换只发生在
+ * 加权位（保底三件套不动），且 BE 容差内才换。
  */
-export function buildComposition(cfg: RoomWaveConfig, count: number, rng: () => number = Math.random): RoomEnemyDef[] {
+export function buildComposition(
+  cfg: RoomWaveConfig,
+  count: number,
+  rng: () => number = Math.random,
+  swapChance = 0
+): RoomEnemyDef[] {
   const result: RoomEnemyDef[] = [];
   if (count >= 3) {
     for (const want of [COMBAT_POOL[0], COMBAT_POOL[1], COMBAT_POOL[2]]) {
@@ -194,7 +235,7 @@ export function buildComposition(cfg: RoomWaveConfig, count: number, rng: () => 
         break;
       }
     }
-    result.push(pick);
+    result.push(swapChance > 0 && rng() < swapChance ? equivalentSwap(pick, cfg.composition, rng) : pick);
   }
   return result;
 }
