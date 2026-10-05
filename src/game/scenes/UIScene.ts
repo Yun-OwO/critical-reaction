@@ -62,7 +62,6 @@ export class UIScene extends Phaser.Scene {
   private weaponText!: Phaser.GameObjects.Text;
   /** 小地图：紧凑态（当前+上一间）与展开态（完整走过路径树） */
   private minimapGfx!: Phaser.GameObjects.Graphics;
-  private minimapLabel!: Phaser.GameObjects.Text;
   private minimapExpanded = false;
   private minimapLastKey = '';
   private keyM!: Phaser.Input.Keyboard.Key;
@@ -272,9 +271,6 @@ export class UIScene extends Phaser.Scene {
 
     // ---- 右上：小地图（顶部房间文字改造：图标 + 树状走过路径；M 键/点击展开） ----
     this.minimapGfx = this.add.graphics().setScrollFactor(0).setDepth(15);
-    this.minimapLabel = this.add.text(W - 16 * s, 84 * s, '', {
-      color: '#8FB8C9', fontFamily: 'monospace', fontSize: `${Math.round(11 * s)}px`
-    }).setOrigin(1, 0).setScrollFactor(0).setDepth(15);
     const mmZone = this.add.zone(W - 92 * s, 30 * s, 170 * s, 62 * s).setScrollFactor(0).setDepth(16).setInteractive({ useHandCursor: true });
     mmZone.on('pointerdown', () => { this.minimapExpanded = !this.minimapExpanded; this.minimapLastKey = ''; });
     this.keyM = this.input.keyboard!.addKey('M');
@@ -487,12 +483,12 @@ export class UIScene extends Phaser.Scene {
     setTextSafe(this.dashText, gameState.dashCd > 0 ? `冲刺冷却 ${gameState.dashCd.toFixed(1)}s` : this.isMobile ? '冲刺就绪' : '冲刺就绪 [鼠标右键]');
     const theme = ROOM_THEMES[gameState.currentRoomType];
     const layerStr = gameState.currentRoomType === 'finalBoss' ? '最终决战' : getLayerName(gameState.layer);
-    setTextSafe(this.minimapLabel, `${layerStr} · ${theme.banner}`);
+    // 小地图只用图标：层名/房间文字已删（纯图标 + 颜色语义）
 
     // 已装备祝福
     if (gameState.equippedBoons.length > 0) {
       const lines = gameState.equippedBoons.map((b) => {
-        const slotLabel = { attack: 'ATK', special: 'SP', dash: 'DSH', passive: 'PSV' }[b.slot] ?? b.slot;
+        const slotLabel = { attack: 'ATK', special: 'SP', dash: 'DSH', passive: 'PSV', vitality: 'VIT', awaken: 'AWK', capacity: 'CAP', might: 'MGT', swift: 'SWF' }[b.slot] ?? b.slot;
         const lv = b.level > 0 ? ` Lv.${b.level + 1}` : '';
         return `${b.icon} ${slotLabel} ${b.name}${lv}`;
       });
@@ -781,9 +777,6 @@ export class UIScene extends Phaser.Scene {
       }
       drawIcon(x, y, n.type, isCurrent, fit < 1 ? 0.9 : 1);
     }
-    // 展开态标题
-    gfx.fillStyle(0x06121e, 0.0);
-    this.minimapLabel.setText(this.minimapLabel.text); // 保留层名标签
   }
 
   /** HUD 右下角元素的右边界（设计单位）：移动端让开按钮组，避免相互遮挡。 */

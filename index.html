@@ -865,6 +865,20 @@
       }
       .status-head h1::after { width: 76px; }
 
+
+      /* 战报继续按钮：不再自动退场，等待玩家点击 */
+      #report-continue {
+        margin-top: 16px; padding: 10px 42px;
+        color: var(--rc, #67e8f9); background: rgba(103,232,249,.07);
+        border: 1px solid color-mix(in srgb, var(--rc, #67e8f9) 55%, transparent);
+        border-radius: 2px; font-family: monospace; font-size: 14px;
+        letter-spacing: .3em; padding-left: calc(42px + .3em);
+        cursor: pointer; transition: background .2s var(--ease-out-lab, cubic-bezier(.2,.8,.2,1)), color .2s, box-shadow .25s;
+      }
+      #report-continue:hover { background: rgba(103,232,249,.16); color: #fff; box-shadow: 0 0 24px color-mix(in srgb, var(--rc, #67e8f9) 30%, transparent); }
+      #report-continue:active { transform: scale(.96); }
+      .report-foot { margin-bottom: 4px; }
+
     </style>
   </head>
   <body>

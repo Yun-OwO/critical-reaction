@@ -1,3 +1,5 @@
+import { BALANCE } from './balance';
+
 /**
  * 武器系统（设计文档 §7）
  *
@@ -51,7 +53,7 @@ export const weapons: WeaponData[] = [
     name: '铂电极光剑',
     type: 'melee',
     baseDamage: 22,
-    cooldown: 0.22,
+    cooldown: BALANCE.combat.baseAttackInterval,
     range: 400,
     description: '近战激光光剑，横扫切割',
     forms: [
@@ -78,7 +80,7 @@ export const weapons: WeaponData[] = [
     name: '反应炮',
     type: 'ranged',
     baseDamage: 18,
-    cooldown: 0.18,
+    cooldown: BALANCE.combat.baseAttackInterval,
     range: 600,
     description: '快速放热弹，放热',
     forms: [

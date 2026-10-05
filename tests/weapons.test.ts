@@ -95,7 +95,9 @@ describe('武器系统（§7）', () => {
     const knife = getWeapon('platinum-knife');
     const cannon = getWeapon('reaction-cannon');
     expect(knife.baseDamage).toBeGreaterThan(cannon.baseDamage);
-    expect(knife.cooldown).toBeGreaterThan(cannon.cooldown);
+    // v0.2：冷却统一走 BALANCE.combat.baseAttackInterval（0.2s），近远程手感差异交给伤害/射程
+    expect(knife.cooldown).toBe(cannon.cooldown);
+    expect(knife.cooldown).toBeCloseTo(0.2, 6);
     expect(cannon.range).toBeGreaterThan(knife.range);
   });
 });

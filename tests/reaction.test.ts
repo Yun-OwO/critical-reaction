@@ -163,3 +163,25 @@ describe('小地图房间树布局', () => {
     expect(p2.y).not.toBe(p3.y);
   });
 });
+
+describe('觉醒祝福（Boss 后特殊池）', () => {
+  it('抽样排除已拥有的，每局各一次', async () => {
+    const { rollSpecialChoices, SPECIAL_BOONS } = await import('../src/game/data/upgrades');
+    const first = rollSpecialChoices(3, []);
+    expect(first).toHaveLength(3);
+    expect(new Set(first.map((b) => b.id)).size).toBe(3);
+    // 已拥有全部 5 个 → 空池
+    const all = rollSpecialChoices(3, SPECIAL_BOONS.map((b) => b.id));
+    expect(all).toHaveLength(0);
+    // 剩 2 个时全给
+    const owned = SPECIAL_BOONS.slice(0, 3).map((b) => b.id);
+    const rest = rollSpecialChoices(3, owned);
+    expect(rest).toHaveLength(2);
+  });
+
+  it('每个觉醒祝福占独立槽位（互不替换）', async () => {
+    const { SPECIAL_BOONS } = await import('../src/game/data/upgrades');
+    const slots = SPECIAL_BOONS.map((b) => b.slot);
+    expect(new Set(slots).size).toBe(slots.length);
+  });
+});

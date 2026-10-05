@@ -116,6 +116,12 @@ export const BALANCE = {
      * 正确打法是先普攻削储备再倾泻爆发——把数值上限做成负向决策。
      */
     runawayCancelThreshold: 10,
+    /** 特殊攻击单次消耗自由电子上限 */
+    specialMaxConsume: 3,
+    /** 基础攻击间隔（秒）：所有武器冷却的单一真相源 */
+    baseAttackInterval: 0.2,
+    /** 基础自由电子上限（商店扩容 +1×2，硬上限 = MAX_FREE_DOTS 6） */
+    baseFreeElectrons: 5,
     runawayFullRatio: 0.8,
     /** 波次等价替换（卫戍协议 08「换怪不换难度」）：加权抽中后按此概率换成战力相近的同类敌人 */
     equivalentSwapChance: 0.5,

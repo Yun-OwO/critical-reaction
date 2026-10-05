@@ -1,6 +1,15 @@
 export type ReactionMode = 'oxidized' | 'reduced';
 export type WeaponId = 'platinum-knife' | 'reaction-cannon';
-export type BoonSlot = 'attack' | 'special' | 'dash' | 'passive';
+export type BoonSlot =
+  | 'attack'
+  | 'special'
+  | 'dash'
+  | 'passive'
+  | 'vitality'
+  | 'awaken'
+  | 'capacity'
+  | 'might'
+  | 'swift';
 import type { RoomType, RunRoomState } from '../data/rooms';
 import { BASE_BAG_CAPACITY } from '../combat/load';
 
@@ -69,6 +78,10 @@ export interface GameState {
   reactionLayers: number;
   /** 本局禁用的祝福 id（每局随机抽样，强制换 build 防背版）。 */
   disabledBoons: string[];
+  /** 觉醒「祝福槽位 +1」的可用次数（装备新祝福且槽位已满时消耗） */
+  extraBoonSlots: number;
+  /** 已拥有的觉醒祝福 id（每局各一次） */
+  ownedSpecialBoons: string[];
   /** 染色槽：主/副/底（100%/50%/25%效果）。 */
   dyeSlots: [DyeSlot, DyeSlot, DyeSlot];
   /** 背包容量（§4.3 负载系统）：携带样本量 / 容量 决定移速与冲刺冷却。 */
@@ -88,7 +101,7 @@ export const gameState: GameState = {
   inner: 0,
   maxInner: 0,
   freeElectrons: 0,
-  maxFreeElectrons: 3,
+  maxFreeElectrons: 5,
   oxidationState: -1,
   temperature: 20,
   mode: 'oxidized',
@@ -119,7 +132,11 @@ export const gameState: GameState = {
   disabledBoons: [] as string[],
   dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
   bagCapacity: BASE_BAG_CAPACITY,
-  carriedGear: []
+  carriedGear: [],
+  /** 觉醒「祝福槽位 +1」的可用次数 */
+  extraBoonSlots: 0,
+  /** 已拥有的觉醒祝福 id（每局各一次） */
+  ownedSpecialBoons: []
 };
 
 /** 获得自由电子，自动封顶。 */
@@ -167,7 +184,7 @@ export function resetRun(): void {
     ehp: 100,
     ehpMax: 100,
     freeElectrons: 0,
-    maxFreeElectrons: 3,
+    maxFreeElectrons: 5,
     oxidationState: -1,
     temperature: 20,
     mode: 'oxidized',
@@ -194,6 +211,8 @@ export function resetRun(): void {
     equippedBoons: [],
     reactionLayers: 0,
     disabledBoons: [],
+    extraBoonSlots: 0,
+    ownedSpecialBoons: [],
     dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
     bagCapacity: BASE_BAG_CAPACITY,
     carriedGear: []

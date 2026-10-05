@@ -16,7 +16,7 @@
  * 稀有度：普通 → 稀有 → 史诗 → 神话
  */
 
-export type BoonSlot = 'attack' | 'special' | 'dash' | 'passive';
+export type BoonSlot = 'attack' | 'special' | 'dash' | 'passive' | 'vitality' | 'awaken' | 'capacity' | 'might' | 'swift';
 export type BoonRarity = 'common' | 'rare' | 'epic' | 'mythic';
 export type ElementSchool = 'H' | 'O' | 'C' | 'cat';
 
@@ -48,10 +48,12 @@ export const SCHOOL_SYMBOLS: Record<ElementSchool, string> = {
 };
 
 export const SLOT_ICONS: Record<BoonSlot, string> = {
+    vitality: '❤', awaken: '✦', capacity: '⚛', might: '⚔', swift: '💨',
   attack: '🗡', special: '🔮', dash: '💨', passive: '🛡'
 };
 
 export const SLOT_NAMES: Record<BoonSlot, string> = {
+    vitality: '生机', awaken: '觉醒', capacity: '容量', might: '威能', swift: '迅捷',
   attack: '攻击', special: '特殊', dash: '冲刺', passive: '被动'
 };
 
@@ -254,4 +256,47 @@ export function pickBoons(
     pool.splice(pool.indexOf(picked), 1);
   }
   return result;
+}
+
+
+/* ===== 觉醒祝福（每层 Boss 后掉落 · 唯一 · 独立槽位） =====
+ * 借鉴卫戍协议：Boss 后不给普通祝福，给改变规则的「觉醒」奖励。
+ * 每个觉醒祝福占独立槽位（互不替换），一局各最多拿一次。 */
+
+export const SPECIAL_BOONS: BoonDef[] = [
+  {
+    id: 'sp-vitality', name: '生机迸发', icon: '❤', slot: 'vitality', school: 'O',
+    rarity: 'epic', desc: '电子HP上限 +20，并立即回复 20',
+    rarityScale: { common: 20, rare: 20, epic: 20, mythic: 20 }
+  },
+  {
+    id: 'sp-awaken', name: '觉醒扩展', icon: '✦', slot: 'awaken', school: 'cat',
+    rarity: 'epic', desc: '祝福槽位 +1（可多装备一个普通祝福）',
+    rarityScale: { common: 1, rare: 1, epic: 1, mythic: 1 }
+  },
+  {
+    id: 'sp-capacity', name: '超价层', icon: '⚛', slot: 'capacity', school: 'H',
+    rarity: 'epic', desc: '自由电子上限 +1',
+    rarityScale: { common: 1, rare: 1, epic: 1, mythic: 1 }
+  },
+  {
+    id: 'sp-might', name: '催化威能', icon: '⚔', slot: 'might', school: 'cat',
+    rarity: 'epic', desc: '全局伤害 +8%',
+    rarityScale: { common: 0.08, rare: 0.08, epic: 0.08, mythic: 0.08 }
+  },
+  {
+    id: 'sp-swift', name: '分子迁速', icon: '💨', slot: 'swift', school: 'C',
+    rarity: 'epic', desc: '移动速度 +10%',
+    rarityScale: { common: 10, rare: 10, epic: 10, mythic: 10 }
+  }
+];
+
+/** 抽取觉醒祝福（排除已拥有的，剩余不足时全给）。 */
+export function rollSpecialChoices(count: number, owned: readonly string[], rng: () => number = Math.random): BoonDef[] {
+  const pool = SPECIAL_BOONS.filter((b) => !owned.includes(b.id));
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
 }

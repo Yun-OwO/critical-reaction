@@ -13,7 +13,7 @@ describe('electron economy', () => {
 
   it('starts with zero free electrons', () => {
     expect(gameState.freeElectrons).toBe(0);
-    expect(gameState.maxFreeElectrons).toBe(3);
+    expect(gameState.maxFreeElectrons).toBe(5); // v0.2 基础上限 5
   });
 
   it('accumulates free electrons', () => {

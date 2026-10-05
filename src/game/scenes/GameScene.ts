@@ -13,7 +13,7 @@ import type { FeedbackTier } from '../visual/feedback';
 import { describeElectronState, overloadTick } from '../combat/electronState';
 import type { ElectronState } from '../combat/electronState';
 import { BAG_UPGRADE_AMOUNT, BAG_UPGRADE_COST, loadDashCdMult, loadSpeedMult, describeLoad } from '../combat/load';
-import { pickBoons, getBoonDef, sampleDisabledBoons, BOON_POOL } from '../data/upgrades';
+import { pickBoons, getBoonDef, sampleDisabledBoons, rollSpecialChoices, BOON_POOL, SPECIAL_BOONS } from '../data/upgrades';
 import type { BoonDef, BoonRarity } from '../data/upgrades';
 import { SCHOOL_COLORS, RARITY_COLORS, RARITY_LABELS, SCHOOL_NAMES, SCHOOL_SYMBOLS, SLOT_ICONS, SLOT_NAMES, formatBoonDesc } from '../data/upgrades';
 import { gameState } from '../state/GameState';
@@ -233,7 +233,7 @@ export class GameScene extends Phaser.Scene {
   private orbitRings: OrbitRing[] = [];
   /** 环绕卫星池：长度 = 自由电子上限（商店扩容后 5），显示数量 = 当前自由电子数 */
   private orbitElectrons: OrbitSatellite[] = [];
-  private static readonly ORBIT_ELECTRON_SLOTS = 5;
+  private static readonly ORBIT_ELECTRON_SLOTS = 6;
   private orbitColor = 0x67e8f9;
   private glowSmoothX: number[] = [];
   private glowSmoothY: number[] = [];
@@ -454,16 +454,29 @@ export class GameScene extends Phaser.Scene {
    * @param gears 装备清单（icon/name/rarity 色/是否丢失）
    * @param foot 底部注脚
    */
+  private reportContinue: (() => void) | null = null;
+  private reportContinueHandler: (() => void) | null = null;
+
   private showRunReport(
     title: string,
     colorHex: string,
     rows: { label: string; value: string; total?: boolean }[],
     gears: { id: string; lost: boolean }[],
-    foot: string
+    foot: string,
+    onContinue?: () => void
   ): void {
     const overlay = document.getElementById('report-overlay');
     const panel = document.getElementById('report-panel');
     if (!overlay || !panel) return;
+    // 不再自动退出：等待玩家点「继续」（或面板外暗区）
+    this.reportContinue = onContinue ?? null;
+    const continueHandler = (): void => {
+      const cb = this.reportContinue;
+      this.reportContinue = null;
+      this.hideRunReport();
+      cb?.();
+    };
+    this.reportContinueHandler = continueHandler;
     const gearHtml = gears.length === 0
       ? '<span class="report-gear none">无装备进出</span>'
       : gears.map((g) => {
@@ -477,9 +490,17 @@ export class GameScene extends Phaser.Scene {
       <div class="report-title">${title}</div>
       <div class="report-rows">${rows.map((r) => `<div class="report-row${r.total ? ' total' : ''}"><span>${r.label}</span><b>${r.value}</b></div>`).join('')}</div>
       <div class="report-gears">${gearHtml}</div>
-      <div class="report-foot">${foot}</div>`;
+      <div class="report-foot">${foot}</div>
+      <button id="report-continue" type="button">继 续</button>`;
     overlay.classList.add('show');
     overlay.classList.remove('fade-out');
+    document.getElementById('report-continue')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.reportContinueHandler?.();
+    });
+    overlay.onclick = (e) => {
+      if (e.target === overlay) this.reportContinueHandler?.();
+    };
   }
 
   /** 关闭战报面板（回大厅前调用）。 */
@@ -1931,11 +1952,12 @@ export class GameScene extends Phaser.Scene {
       this.applyReward(this.roomDef.reward, '精英房');
       if (this.roomDef.gearDrop) this.spawnGearDrop(this.roomDef.gearDrop, this.player.x + Phaser.Math.Between(-160, 160), this.player.y + Phaser.Math.Between(-110, 110));
     }
-    // 战斗房/Boss房/精英房清空后刷新祝福光团，等玩家拾取
+    // 战斗房/精英房清空后刷新普通祝福光团；Boss 房给「觉醒祝福」（特殊池，见 SPECIAL_BOONS）
     if (this.roomDef.type === 'combat' || this.roomDef.type === 'boss' || this.roomDef.type === 'elite') {
       gameState.roomState = 'cleared';
       this.roomClearTimer = 999; // 阻止 cleared case 提前触发
-      this.time.delayedCall(400, () => this.spawnBoonPickup());
+      const isBoss = this.roomDef.type === 'boss';
+      this.time.delayedCall(400, () => this.spawnBoonPickup(isBoss ? this.rollSpecialChoices(3) : this.rollBoonChoices(3), isBoss));
     } else {
       gameState.roomState = 'cleared';
     }
@@ -2053,6 +2075,11 @@ export class GameScene extends Phaser.Scene {
     return picked.length > 0 ? picked : pickBoons(count);
   }
 
+  /** 抽取觉醒祝福：排除已拥有的，每局各一次。 */
+  private rollSpecialChoices(count: number): BoonDef[] {
+    return rollSpecialChoices(count, gameState.ownedSpecialBoons);
+  }
+
   private selectUpgrade(index: number): void {
     if (!this.upgradeSelectionActive || index >= this.upgradeChoices.length) return;
     this.upgradeSelectionActive = false;
@@ -2079,10 +2106,29 @@ export class GameScene extends Phaser.Scene {
         const replacedDef = getBoonDef(replaced.id);
         if (replacedDef) this.revertBoonEffect(replacedDef, replaced.level);
       }
-      gameState.equippedBoons = gameState.equippedBoons.filter((b) => b.slot !== boon.slot);
-      gameState.equippedBoons.push({ id: boon.id, name: boon.name, icon: boon.icon, slot: boon.slot, school: boon.school, level: 0 });
-      this.applyBoonEffect(boon, 0);
-      getLabel = `${boon.icon} ${boon.name}`;
+      const isSpecial = SPECIAL_BOONS.some((b) => b.id === boon.id);
+      if (isSpecial) {
+        // 觉醒祝福：独立槽位互不替换，每局各一次
+        gameState.ownedSpecialBoons.push(boon.id);
+        gameState.equippedBoons.push({ id: boon.id, name: boon.name, icon: boon.icon, slot: boon.slot, school: boon.school, level: 0 });
+        this.applyBoonEffect(boon, 0);
+        getLabel = `✦ ${boon.icon} ${boon.name} 觉醒!`;
+      } else if (replaced && gameState.extraBoonSlots > 0) {
+        // 「祝福槽位 +1」觉醒：新祝福不替换旧祝福，消耗一次额外槽位并存
+        gameState.extraBoonSlots -= 1;
+        gameState.equippedBoons.push({ id: boon.id, name: boon.name, icon: boon.icon, slot: boon.slot, school: boon.school, level: 0 });
+        this.applyBoonEffect(boon, 0);
+        getLabel = `${boon.icon} ${boon.name}（启用额外槽位，余 ${gameState.extraBoonSlots}）`;
+      } else {
+        if (replaced) {
+          const replacedDef = getBoonDef(replaced.id);
+          if (replacedDef) this.revertBoonEffect(replacedDef, replaced.level);
+        }
+        gameState.equippedBoons = gameState.equippedBoons.filter((b) => b.slot !== boon.slot);
+        gameState.equippedBoons.push({ id: boon.id, name: boon.name, icon: boon.icon, slot: boon.slot, school: boon.school, level: 0 });
+        this.applyBoonEffect(boon, 0);
+        getLabel = `${boon.icon} ${boon.name}`;
+      }
     }
 
     // 卡片选择动画
@@ -2394,6 +2440,23 @@ export class GameScene extends Phaser.Scene {
   private applyBoonEffect(boon: BoonDef, level = 0, sign = 1): void {
     const v = this.boonRarityValue(boon, level);
     switch (boon.id) {
+      // ===== 觉醒祝福（Boss 后 · 独立槽位）=====
+      case 'sp-vitality':
+        gameState.ehpMax += sign * 20;
+        gameState.ehp = Math.min(gameState.ehpMax, gameState.ehp + sign * 20);
+        break;
+      case 'sp-awaken':
+        gameState.extraBoonSlots += sign;
+        break;
+      case 'sp-capacity':
+        gameState.maxFreeElectrons = Math.min(6, gameState.maxFreeElectrons + sign);
+        break;
+      case 'sp-might':
+        this.reactionMilestoneBonus += sign * 0.08;
+        break;
+      case 'sp-swift':
+        this.boonMoveSpeedBonus += sign * 10;
+        break;
       // ===== 氢·爆裂 (H) =====
       case 'h-atk-overload':
         this.boonExtraElectronOxidize += sign * v;
@@ -2482,6 +2545,10 @@ export class GameScene extends Phaser.Scene {
 
   /** 回退指定等级的祝福效果（强化前调用，与 applyBoonEffect 严格对称）。 */
   private revertBoonEffect(boon: BoonDef, level: number): void {
+    if (boon.id.startsWith('sp-')) {
+      this.applyBoonEffect(boon, level, -1);
+      return;
+    }
     this.applyBoonEffect(boon, level, -1);
   }
 
@@ -2818,10 +2885,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Hades 风格：房间清空后刷新祝福光团，玩家走近按 E 拾取后弹出选择 UI */
-  private spawnBoonPickup(): void {
-    const choices = this.rollBoonChoices(3);
+  private spawnBoonPickup(choices: BoonDef[], special = false): void {
     const firstSchool = choices[0].school;
-    const school = SCHOOL_COLORS[firstSchool];
+    const school = special ? { primary: 0xfde047, light: '#FDE047' } : SCHOOL_COLORS[firstSchool];
     const pos = this.clampToPlayArea(this.diamondCx + (Math.random() - 0.5) * 200, this.diamondCy - 200);
 
     // 外层光晕
@@ -2843,8 +2909,8 @@ export class GameScene extends Phaser.Scene {
     this.roomProps.push(symbol);
 
     // 提示文字
-    const label = this.add.text(pos.x, pos.y - 60, '祝福 [E]', {
-      color: school.light, fontFamily: 'monospace', fontSize: '16px'
+    const label = this.add.text(pos.x, pos.y - 60, special ? '✦ 觉醒祝福 [E]' : '祝福 [E]', {
+      color: school.light, fontFamily: 'monospace', fontSize: special ? '18px' : '16px'
     }).setOrigin(0.5).setDepth(13).setAlpha(0);
     this.roomProps.push(label);
 
@@ -3089,7 +3155,7 @@ export class GameScene extends Phaser.Scene {
     this.merchant.label.setText('已购买');
     if (offer.item === 'electronMax') {
       // 基础上限 3，催化剂台最多扩容两次 → 5
-      gameState.maxFreeElectrons = Math.min(5, gameState.maxFreeElectrons + offer.amount);
+      gameState.maxFreeElectrons = Math.min(6, gameState.maxFreeElectrons + offer.amount);
       gainFreeElectrons(offer.amount);
       this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80, `自由电子上限 +${offer.amount}`, '#67E8F9');
     } else if (offer.item === 'heal') {
@@ -3550,9 +3616,10 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
-    // 消耗全部自由电子强化特殊攻击：伤害 +25%/颗；氧化态下每颗使命中额外夺取 1 颗电子
-    const consumed = gameState.freeElectrons;
-    gameState.freeElectrons = 0;
+    // 消耗自由电子强化特殊攻击（单次上限 BALANCE.combat.specialMaxConsume）：
+    // 伤害 +25%/颗；氧化态下每颗使命中额外夺取 1 颗电子
+    const consumed = Math.min(gameState.freeElectrons, BALANCE.combat.specialMaxConsume);
+    gameState.freeElectrons -= consumed;
     if (consumed > 0) {
       this.showElectronDelta(this.player.x, this.player.y - 62, -consumed, '#67E8F9', true);
       this.showFloatingText(this.player.x, this.player.y - 88, `特殊强化 ×${consumed}`, '#67E8F9');
@@ -5383,14 +5450,13 @@ export class GameScene extends Phaser.Scene {
       );
       resetRun();
       this.resetBoonState();
-      this.cameras.main.fadeOut(1600, 10, 14, 26);
-      this.time.delayedCall(2200, () => {
-        this.hideRunReport();
-        this.time.delayedCall(500, () => {
+      this.reportContinue = () => {
+        this.cameras.main.fadeOut(900, 10, 14, 26);
+        this.time.delayedCall(950, () => {
           this.scene.stop('UIScene');
           this.scene.start('LobbyScene');
         });
-      });
+      };
     });
   }
 
@@ -6506,16 +6572,15 @@ export class GameScene extends Phaser.Scene {
         this.playSfx('sfx-ding', 0.9);
         emit('extraction', { active: false, success: true });
         this.cameras.main.flash(300, 50, 115, 125);
-        this.time.delayedCall(2600, () => {
-          this.hideRunReport();
+        this.reportContinue = () => {
           resetRun();
           this.resetBoonState();
-          this.cameras.main.fadeOut(1000, 10, 14, 26);
-          this.time.delayedCall(1000, () => {
+          this.cameras.main.fadeOut(900, 10, 14, 26);
+          this.time.delayedCall(950, () => {
             this.scene.stop('UIScene');
             this.scene.start('LobbyScene');
           });
-        });
+        };
       }
     } else if (nearZone) {
       this.extractionText.setAlpha(1);
