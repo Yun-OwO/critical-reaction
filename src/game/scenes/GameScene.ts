@@ -46,6 +46,7 @@ import { getSettings } from '../state/SettingsState';
 import { computeUiScale, currentViewportMetrics } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
+import type { MapEdge, MapNode } from '../ui/minimap';
 import { addLayers, claimMilestones, isRunawayCancel, reactionDamageMult } from '../combat/reaction';
 import { TutorialController } from '../tutorial/TutorialController';
 
@@ -497,6 +498,11 @@ export class GameScene extends Phaser.Scene {
     this.toggleStatusPanel();
   };
 
+  /** 小地图数据（只读访问：UIScene 绘制走过路径）。 */
+  public getMinimapData(): { nodes: MapNode[]; edges: MapEdge[]; currentId: number } {
+    return { nodes: this.mapNodes, edges: this.mapEdges, currentId: this.mapCurrentId };
+  }
+
   public toggleStatusPanel(): void {
     const overlay = document.getElementById('status-overlay');
     if (!overlay) return;
@@ -675,6 +681,10 @@ export class GameScene extends Phaser.Scene {
     this.reactionMilestoneBonus = 0;
     this.claimedMilestones = 0;
     this.sfxLimiter.reset();
+    this.mapNodes = [];
+    this.mapEdges = [];
+    this.mapSeen.clear();
+    this.mapCurrentId = -1;
     this.reactionPairs = [];
     this.dashCount = 0;
     this.dashNextReadyTimer = 0;
@@ -757,7 +767,7 @@ export class GameScene extends Phaser.Scene {
     this.createOrbitSystem();
     this.startRun();
     // 新手引导：在 startRun 之后启动（首次运行逐步骤引导，老玩家自动跳过）
-    this.tutorial = new TutorialController(this);
+    this.tutorial = new TutorialController(this, 'battle');
     this.tutorial.start();
     // 战斗 BGM：与大厅共享同一播放池（已在播则续播，不叠加）
     this.bgm = new BgmManager(this);
@@ -1219,6 +1229,11 @@ export class GameScene extends Phaser.Scene {
   private claimedMilestones = 0;
   /** 音效四重节流（总并发/单源冷却/全局间隔/叠音上限） */
   private sfxLimiter = new SfxLimiter();
+  /** 小地图：走过路径的房间图（节点=进入过的房间，边=实际走过的门） */
+  private mapNodes: MapNode[] = [];
+  private mapEdges: MapEdge[] = [];
+  private mapSeen = new Set<number>();
+  private mapCurrentId = -1;
   /** 反应层数全局伤害倍率 */
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
@@ -1643,7 +1658,7 @@ export class GameScene extends Phaser.Scene {
       stunTimer: 0,
       pushX: 0,
       pushY: 0,
-      orbit: createOrbit(hp),
+      orbit: createOrbit(hp, layers, BALANCE.combat.enemyHpPerElectron),
       enteredCombat: false,
       orbitAngle: Math.random() * Math.PI * 2,
       orbitArcs: [],
@@ -1708,6 +1723,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private enterRoom(room: RoomDef): void {
+    // 小地图追踪：走过路径 = 节点（进入过的房间）+ 边（实际通过的门）
+    if (!this.mapSeen.has(room.id)) {
+      this.mapSeen.add(room.id);
+      this.mapNodes.push({ id: room.id, type: room.type, depth: room.depth, layer: room.layer });
+    }
+    if (this.roomDef && this.roomDef.id !== room.id && !this.mapEdges.some((e) => e.from === this.roomDef.id && e.to === room.id)) {
+      this.mapEdges.push({ from: this.roomDef.id, to: room.id });
+    }
+    this.mapCurrentId = room.id;
     this.roomDef = room;
     gameState.roomIndex = room.depth;
     gameState.layer = room.layer;
@@ -5119,7 +5143,8 @@ export class GameScene extends Phaser.Scene {
   /** 当层生命/轨道电子耗尽结算：多层怪破一层（重建轨道供后续氧化继续），否则正常击杀。避免氧化一次即秒杀多层怪。 */
   private breakLayerOrKill(target: RuntimeEnemy): void {
     this.damageEnemy(target, target.maxHp);
-    target.orbit = createOrbit(target.maxHp);
+    // 破层回充：剩余层数参与电子数换算（层数越多回充越多，多层怪真正耐打）
+    target.orbit = createOrbit(target.maxHp, Math.max(1, target.electronLayers), BALANCE.combat.enemyHpPerElectron);
   }
 
   /** 对敌人造成伤害；多层电子下耗尽一层则回满血并破一层，否则真正击杀。 */

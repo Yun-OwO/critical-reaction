@@ -6,6 +6,7 @@ import { getVisualProfile } from '../visual/quality';
 import { projectXZ, depthFromXZ } from '../utils/projection';
 import { mobileInput, resetQueuedActions } from '../input/mobileInput';
 import { computeUiScale, currentViewportMetrics, isTouchDevice } from '../ui/uiScale';
+import { TutorialController } from '../tutorial/TutorialController';
 import { BgmManager } from '../utils/BgmManager';
 
 interface LobbyPoint {
@@ -46,6 +47,8 @@ export class LobbyScene extends Phaser.Scene {
   private ambientLight!: Phaser.GameObjects.Rectangle;
   private keys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private interactKey!: Phaser.Input.Keyboard.Key;
+  /** 新手引导（大厅段：武器架/染色台/装备库） */
+  private tutorial: TutorialController | null = null;
   private prompt!: Phaser.GameObjects.Text;
   private points: LobbyPoint[] = [];
   private selectedDye = 0;
@@ -65,6 +68,9 @@ export class LobbyScene extends Phaser.Scene {
     this.createChemicDecorations();
     this.playLobbyBgm();
     this.createInteractionPoints();
+    // 新手引导大厅段：武器架 → 染色台 → 装备库（战斗段在 GameScene 继续）
+    this.tutorial = new TutorialController(this, 'lobby');
+    this.tutorial.start();
     this.createPlayer();
     // roundPixels=false：取整跟随在非整数缩放下产生阶梯卡顿
     this.cameras.main.startFollow(this.player, false, 0.08, 0.08);
@@ -84,6 +90,8 @@ export class LobbyScene extends Phaser.Scene {
     // 场景停止后移除 resize 监听（scale 管理器为游戏级，监听会跨场景残留）
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.onResize, this);
+      this.tutorial?.destroy();
+      this.tutorial = null;
     });
     const isMobileDevice = isTouchDevice();
     this.uiScale = computeUiScale(currentViewportMetrics(this.scale.width, this.scale.height, isMobileDevice));
@@ -539,6 +547,9 @@ export class LobbyScene extends Phaser.Scene {
   /* ── Interaction Logic ─────────────────────────────────── */
 
   private interact(action: LobbyPoint['action']): void {
+    if (action === 'weapon' || action === 'dye' || action === 'gear') {
+      this.tutorial?.notifyStation(action);
+    }
     if (action === 'start') {
       resetQueuedActions();
       this.scene.stop('UIScene');

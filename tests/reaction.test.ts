@@ -129,3 +129,37 @@ describe('每局随机禁用祝福', () => {
     expect(a).toEqual(b);
   });
 });
+
+describe('小地图房间树布局', () => {
+  it('列随深度递增、长子继承泳道、兄弟开新泳道', async () => {
+    const { layoutRoomTree } = await import('../src/game/ui/minimap');
+    const nodes = [
+      { id: 1, type: 'combat', depth: 0, layer: 0 },
+      { id: 2, type: 'combat', depth: 1, layer: 0 },
+      { id: 3, type: 'extraction', depth: 2, layer: 0 }
+    ];
+    const edges = [{ from: 1, to: 2 }, { from: 2, to: 3 }];
+    const pos = layoutRoomTree(nodes, edges);
+    expect(pos.get(1)!.col).toBeLessThan(pos.get(2)!.col);
+    expect(pos.get(2)!.col).toBeLessThan(pos.get(3)!.col);
+    expect(pos.get(1)!.lane).toBe(0);
+    expect(pos.get(2)!.lane).toBe(0); // 长子继承
+    expect(pos.get(3)!.lane).toBe(0);
+  });
+
+  it('兄弟分支开新泳道不重叠', async () => {
+    const { layoutRoomTree } = await import('../src/game/ui/minimap');
+    const nodes = [
+      { id: 1, type: 'combat', depth: 0, layer: 0 },
+      { id: 2, type: 'combat', depth: 1, layer: 0 },
+      { id: 3, type: 'shop', depth: 1, layer: 0 }
+    ];
+    const edges = [{ from: 1, to: 2 }, { from: 1, to: 3 }];
+    const pos = layoutRoomTree(nodes, edges);
+    const p2 = pos.get(2)!;
+    const p3 = pos.get(3)!;
+    expect(p2.col).toBe(p3.col); // 同深度同列
+    expect(p2.lane).not.toBe(p3.lane); // 不同泳道 → y 不重叠
+    expect(p2.y).not.toBe(p3.y);
+  });
+});

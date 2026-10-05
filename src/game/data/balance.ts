@@ -115,12 +115,14 @@ export const BALANCE = {
      * 的目标单发夺取 ≥7 颗 → 整击取消（一颗都拿不到）。无限堆单发倍率反而亏输出，
      * 正确打法是先普攻削储备再倾泻爆发——把数值上限做成负向决策。
      */
-    runawayCancelThreshold: 7,
+    runawayCancelThreshold: 10,
     runawayFullRatio: 0.8,
     /** 波次等价替换（卫戍协议 08「换怪不换难度」）：加权抽中后按此概率换成战力相近的同类敌人 */
     equivalentSwapChance: 0.5,
     /** 等价替换的战力容差（±25% 内视为等价） */
-    equivalentSwapTolerance: 0.25
+    equivalentSwapTolerance: 0.25,
+    /** 敌人轨道电子换算：每这么多点 maxHp 一颗电子（线性，容量 8 封顶） */
+    enemyHpPerElectron: 55
   },
   /** 反应层数（借鉴 bonds 层系统）：电子转移累积催化层数，全局线性加成 + 里程碑掉落 */
   reaction: {

@@ -12,6 +12,7 @@ import { BASE_COLORS, STATE_COLORS, hexString } from '../visual/palette';
 import { describeElectronState } from '../combat/electronState';
 import { BALANCE } from '../data/balance';
 import { describeLoad } from '../combat/load';
+import { layoutRoomTree, layoutBounds, type MapNode, type MapEdge, type NodePos } from '../ui/minimap';
 import {
   computeGeometryScale,
   computeTouchControlLayout,
@@ -59,7 +60,12 @@ export class UIScene extends Phaser.Scene {
   private electronDeltaText!: Phaser.GameObjects.Text;
   private bossNameText!: Phaser.GameObjects.Text;
   private weaponText!: Phaser.GameObjects.Text;
-  private roomText!: Phaser.GameObjects.Text;
+  /** 小地图：紧凑态（当前+上一间）与展开态（完整走过路径树） */
+  private minimapGfx!: Phaser.GameObjects.Graphics;
+  private minimapLabel!: Phaser.GameObjects.Text;
+  private minimapExpanded = false;
+  private minimapLastKey = '';
+  private keyM!: Phaser.Input.Keyboard.Key;
   private boonText!: Phaser.GameObjects.Text;
   private tempLabel!: Phaser.GameObjects.Text;
   private tempStateLabel!: Phaser.GameObjects.Text;
@@ -264,10 +270,14 @@ export class UIScene extends Phaser.Scene {
       color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
     }).setOrigin(0.5).setDepth(12);
 
-    // ---- 顶部：房间名 ----
-    this.roomText = this.add.text(W / 2, 24 * s, '', {
-      color: '#D4E8EE', fontFamily: 'monospace', fontSize: `${Math.round(20 * s)}px`, fontStyle: 'bold'
-    }).setOrigin(0.5, 0).setDepth(12);
+    // ---- 右上：小地图（顶部房间文字改造：图标 + 树状走过路径；M 键/点击展开） ----
+    this.minimapGfx = this.add.graphics().setScrollFactor(0).setDepth(15);
+    this.minimapLabel = this.add.text(W - 16 * s, 84 * s, '', {
+      color: '#8FB8C9', fontFamily: 'monospace', fontSize: `${Math.round(11 * s)}px`
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(15);
+    const mmZone = this.add.zone(W - 92 * s, 30 * s, 170 * s, 62 * s).setScrollFactor(0).setDepth(16).setInteractive({ useHandCursor: true });
+    mmZone.on('pointerdown', () => { this.minimapExpanded = !this.minimapExpanded; this.minimapLastKey = ''; });
+    this.keyM = this.input.keyboard!.addKey('M');
 
     // ---- 顶部：Boss 血条 ----
     const bossBarW = Math.min(620 * s, W - 320 * s);
@@ -396,6 +406,7 @@ export class UIScene extends Phaser.Scene {
     this.refreshBossBar();
     this.refreshDangerVignette();
     this.drawOffscreenIndicators();
+    this.drawMinimap();
   }
 
   /** 电子轨道生命核心：把「电子即生命」渲染成可一眼读出缺失的轨道图。 */
@@ -476,8 +487,7 @@ export class UIScene extends Phaser.Scene {
     setTextSafe(this.dashText, gameState.dashCd > 0 ? `冲刺冷却 ${gameState.dashCd.toFixed(1)}s` : this.isMobile ? '冲刺就绪' : '冲刺就绪 [鼠标右键]');
     const theme = ROOM_THEMES[gameState.currentRoomType];
     const layerStr = gameState.currentRoomType === 'finalBoss' ? '最终决战' : getLayerName(gameState.layer);
-    setTextSafe(this.roomText, `${layerStr} · ${theme.banner}`);
-    setColorSafe(this.roomText, `#${theme.boundary.toString(16).padStart(6, '0')}`);
+    setTextSafe(this.minimapLabel, `${layerStr} · ${theme.banner}`);
 
     // 已装备祝福
     if (gameState.equippedBoons.length > 0) {
@@ -650,6 +660,130 @@ export class UIScene extends Phaser.Scene {
     this.weaponText.setAlpha(1);
     this.tweens.killTweensOf(this.weaponText);
     this.tweens.add({ targets: this.weaponText, alpha: 0, delay: 800, duration: 400 });
+  }
+
+  /** M 键切换展开（桌面）。 */
+  private toggleMinimapIfKey(): void {
+    if (Phaser.Input.Keyboard.JustDown(this.keyM)) {
+      this.minimapExpanded = !this.minimapExpanded;
+      this.minimapLastKey = '';
+    }
+  }
+
+  /** 右上小地图：紧凑态只画 当前+上一间 两枚图标；展开态画完整走过路径树。 */
+  private drawMinimap(): void {
+    this.toggleMinimapIfKey();
+    const game = this.scene.get('GameScene') as unknown as {
+      scene: Phaser.Scenes.ScenePlugin;
+      getMinimapData?: () => { nodes: MapNode[]; edges: MapEdge[]; currentId: number };
+    } | null;
+    const data = game && game.scene.isActive() && game.getMinimapData ? game.getMinimapData() : null;
+    const W = this.scale.width;
+    const s = this.s;
+    const gfx = this.minimapGfx;
+    gfx.clear();
+    if (!data || data.nodes.length === 0) return;
+
+    const typeColor = (type: string): number => {
+      const theme = ROOM_THEMES[type as keyof typeof ROOM_THEMES];
+      return theme ? theme.boundary : 0x67e8f9;
+    };
+    const drawIcon = (x: number, y: number, type: string, current: boolean, scale = 1): void => {
+      const color = typeColor(type);
+      const r = (type === 'boss' || type === 'finalBoss' ? 9 : 6.5) * s * scale;
+      gfx.lineStyle(current ? 2.5 : 1.5, color, current ? 1 : 0.75);
+      if (current) gfx.fillStyle(color, 0.35);
+      if (type === 'extraction') {
+        gfx.strokeRect(x - r, y - r * 0.7, r * 2, r * 1.4);
+        if (current) gfx.fillRect(x - r, y - r * 0.7, r * 2, r * 1.4);
+      } else {
+        // 菱形（旋转 45° 方块）：战斗/Boss/事件的统一图标语言
+        gfx.save();
+        gfx.translateCanvas(x, y);
+        gfx.rotateCanvas(Math.PI / 4);
+        gfx.strokeRect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
+        if (current) gfx.fillRect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
+        gfx.restore();
+      }
+    };
+
+    if (!this.minimapExpanded) {
+      // ---- 紧凑态：当前 + 上一间（默认尺寸）----
+      const bgW = 158 * s;
+      const bgH = 52 * s;
+      gfx.fillStyle(0x06121e, 0.78);
+      gfx.fillRoundedRect(W - bgW - 12 * s, 12 * s, bgW, bgH, 4 * s);
+      gfx.lineStyle(1, 0x67e8f9, 0.4);
+      gfx.strokeRoundedRect(W - bgW - 12 * s, 12 * s, bgW, bgH, 4 * s);
+      const cur = data.nodes.find((n) => n.id === data.currentId);
+      if (!cur) return;
+      const curIdx = data.nodes.indexOf(cur);
+      const prev = curIdx > 0 ? data.nodes[curIdx - 1] : null;
+      const cy = 12 * s + bgH / 2;
+      const xCur = W - 34 * s;
+      const xPrev = W - 120 * s;
+      if (prev) {
+        gfx.lineStyle(2, 0x67e8f9, 0.55);
+        gfx.lineBetween(xPrev + 9 * s, cy, xCur - 11 * s, cy);
+        drawIcon(xPrev, cy, prev.type, false, 0.9);
+      }
+      // 当前：脉动光环
+      const pulse = 0.5 + 0.5 * Math.sin(this.time.now * 0.006);
+      gfx.lineStyle(1.5, 0x67e8f9, 0.25 + 0.3 * pulse);
+      gfx.strokeCircle(xCur, cy, 14 * s + 3 * s * pulse);
+      drawIcon(xCur, cy, cur.type, true);
+      return;
+    }
+
+    // ---- 展开态：完整走过路径树 ----
+    const bgW = Math.min(560 * s, W - 24 * s);
+    const bgH = Math.min(380 * s, this.scale.height - 120 * s);
+    const bgX = W - bgW - 12 * s;
+    gfx.fillStyle(0x06121e, 0.9);
+    gfx.fillRoundedRect(bgX, 12 * s, bgW, bgH, 6 * s);
+    gfx.lineStyle(1.5, 0x67e8f9, 0.55);
+    gfx.strokeRoundedRect(bgX, 12 * s, bgW, bgH, 6 * s);
+
+    const pos: Map<number, NodePos> = layoutRoomTree(
+      data.nodes,
+      data.edges,
+      { colWidth: 64 * s, rowHeight: 42 * s, padX: bgX + 40 * s, padY: 12 * s + 40 * s }
+    );
+    const bounds = layoutBounds(pos);
+    // 树比面板大时整体缩放进面板
+    const contentW = Math.max(1, bounds.maxX - bounds.minX);
+    const contentH = Math.max(1, bounds.maxY - bounds.minY);
+    const fit = Math.min(1, (bgW - 70 * s) / contentW, (bgH - 70 * s) / contentH);
+
+    // 边
+    gfx.lineStyle(2, 0x67e8f9, 0.5);
+    for (const e of data.edges) {
+      const a = pos.get(e.from);
+      const b = pos.get(e.to);
+      if (!a || !b) continue;
+      const ax = bgX + (bgW - 24 * s) - (a.x - bounds.minX) * fit - 12 * s;
+      const ay = 12 * s + 40 * s + (a.y - bounds.minY) * fit;
+      const bx = bgX + (bgW - 24 * s) - (b.x - bounds.minX) * fit - 12 * s;
+      const by = 12 * s + 40 * s + (b.y - bounds.minY) * fit;
+      gfx.lineBetween(ax, ay, bx, by);
+    }
+    // 节点
+    for (const n of data.nodes) {
+      const p = pos.get(n.id);
+      if (!p) continue;
+      const x = bgX + (bgW - 24 * s) - (p.x - bounds.minX) * fit - 12 * s;
+      const y = 12 * s + 40 * s + (p.y - bounds.minY) * fit;
+      const isCurrent = n.id === data.currentId;
+      const pulse = isCurrent ? 0.5 + 0.5 * Math.sin(this.time.now * 0.006) : 0;
+      if (isCurrent) {
+        gfx.lineStyle(1.5, 0x67e8f9, 0.3 + 0.3 * pulse);
+        gfx.strokeCircle(x, y, 13 * s + 3 * s * pulse);
+      }
+      drawIcon(x, y, n.type, isCurrent, fit < 1 ? 0.9 : 1);
+    }
+    // 展开态标题
+    gfx.fillStyle(0x06121e, 0.0);
+    this.minimapLabel.setText(this.minimapLabel.text); // 保留层名标签
   }
 
   /** HUD 右下角元素的右边界（设计单位）：移动端让开按钮组，避免相互遮挡。 */

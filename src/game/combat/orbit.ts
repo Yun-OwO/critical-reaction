@@ -16,16 +16,17 @@ export interface OrbitState {
 /**
  * 根据最大生命值创建轨道状态。
  * 单发生物（maxHp <= SINGLE_HIT_MAX_HP）不产生轨道，返回 null。
- * 电子数随HP增长但有上限，避免高层怪物被还原态秒杀。
+ *
+ * 电子数换算（v0.2 健壮性修订）：旧公式在 HP>90 后走 log2 且上限 5 颗，
+ * 导致 2/3 层高血量怪只有 3-5 颗电子，多夺压力下一两下即破层——
+ * 现改为线性换算（每 hpPerElectron 点 maxHp 一颗电子，可预测可调参），
+ * 多层怪每额外电子层 +1 颗，容量 8 封顶。
  */
-export function createOrbit(maxHp: number): OrbitState | null {
+export function createOrbit(maxHp: number, layers = 1, hpPerElectron = 55): OrbitState | null {
   if (maxHp <= SINGLE_HIT_MAX_HP) return null;
-  // 低HP线性增长，高HP对数增长，上限5颗
-  const raw = maxHp <= 90
-    ? Math.round(maxHp / 22)
-    : Math.round(Math.log2(maxHp / 30));
+  const base = Math.ceil(maxHp / hpPerElectron) + Math.max(0, layers - 1);
   return {
-    count: Math.min(5, Math.max(1, raw)),
+    count: Math.min(ORBIT_CAPACITY, Math.max(2, base)),
     capacity: ORBIT_CAPACITY,
     inertCount: 0
   };

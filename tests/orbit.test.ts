@@ -151,3 +151,24 @@ describe('player orbit visual states', () => {
     }
   });
 });
+
+describe('轨道电子数健壮性修订（v0.2）', () => {
+  it('高血量怪线性换算：不再被 log2 压到 3-5 颗', () => {
+    const mid = createOrbit(230)!;   // 2 层怪典型 maxHp
+    const high = createOrbit(400)!;  // 3 层怪典型 maxHp
+    expect(mid.count).toBeGreaterThanOrEqual(5);
+    expect(high.count).toBeGreaterThanOrEqual(7);
+    expect(high.count).toBeLessThanOrEqual(8);
+  });
+
+  it('多层怪每额外电子层 +1 颗（破层回充同样受益）', () => {
+    const single = createOrbit(230, 1)!;
+    const multi = createOrbit(230, 3)!;
+    expect(multi.count).toBe(Math.min(8, single.count + 2));
+  });
+
+  it('容量 8 封顶且下限 2', () => {
+    expect(createOrbit(10000, 3)!.count).toBe(8);
+    expect(createOrbit(13)!.count).toBe(2);
+  });
+});
