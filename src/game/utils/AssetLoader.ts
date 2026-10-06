@@ -48,4 +48,11 @@ export function loadGameAssets(scene: Phaser.Scene): void {
   scene.load.image('tex-flask', 'textures/flask.png');
   scene.load.image('tex-shield', 'textures/shield.png');
   scene.load.image('tex-speed', 'textures/speed.png');
+  // 群系地形/实物瓦片（v0.2.3）：tloor/tbc 地板 + 何忆卫设备残骸（2.5D 投影用）
+  scene.load.image('biome-tloor', 'textures/biomes/tloor.png');
+  scene.load.image('biome-tbc', 'textures/biomes/tbc.png');
+  scene.load.image('biome-trap-40', 'textures/biomes/trap_1040_acarm040.png');
+  scene.load.image('biome-trap-41', 'textures/biomes/trap_1041_acarm041.png');
+  scene.load.image('biome-trap-42', 'textures/biomes/trap_1042_acarm042.png');
+  scene.load.image('biome-trap-43', 'textures/biomes/trap_1043_acarm043.png');
 }

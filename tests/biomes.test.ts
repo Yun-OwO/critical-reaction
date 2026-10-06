@@ -43,6 +43,7 @@ describe('程序化地图生成（群系/地形/地物）', () => {
     const again = generateTerrain(12345, W, H, A, B, W / 2, H / 2);
     expect(JSON.stringify(again.tints)).toBe(JSON.stringify(gen.tints));
     expect(JSON.stringify(again.decorations)).toBe(JSON.stringify(gen.decorations));
+    expect(JSON.stringify(again.tiles)).toBe(JSON.stringify(gen.tiles));
   });
 
   it('大地图上全部 5 种群系都有分布', () => {
@@ -67,6 +68,52 @@ describe('程序化地图生成（群系/地形/地物）', () => {
     const puddleBiomes = new Set(BIOMES.filter((b) => b.puddleColor !== null).map((b) => b.id));
     for (const d of gen.decorations) {
       if (d.puddle) expect(puddleBiomes.has(d.biomeId)).toBe(true);
+    }
+  });
+});
+
+describe('体积化地形与实物瓦片（v0.2.3）', () => {
+  const gen = generateTerrain(777, W, H, A, B, W / 2, H / 2);
+
+  it('高地格生成棱柱：顶面用群系 accent，厚度三档', () => {
+    expect(gen.blocks.length).toBeGreaterThan(10);
+    const biomeById = new Map(BIOMES.map((b) => [b.id, b]));
+    for (const blk of gen.blocks.slice(0, 30)) {
+      expect(blk.height).toBeGreaterThanOrEqual(12);
+      expect(blk.height).toBeLessThanOrEqual(28);
+      // 顶面色属于该格群系 accent（查 tint 同色的群系）
+      const biome = biomeById.get(blk.biomeId);
+      expect(biome).toBeDefined();
+      expect(blk.top).toBe(biome!.accent);
+    }
+  });
+
+  it('实物瓦片只来自所在群系的地形池', () => {
+    const biomeById = new Map(BIOMES.map((b) => [b.id, b]));
+    for (const tile of gen.tiles) {
+      const biome = biomeById.get(tile.biomeId);
+      expect(biome).toBeDefined();
+      expect(biome!.terrainTiles).toContain(tile.texture);
+      expect(Math.abs(tile.rot)).toBeLessThanOrEqual(0.105);
+    }
+  });
+
+  it('大型地物只来自所在群系的地物池，数量稀疏', () => {
+    const biomeById = new Map(BIOMES.map((b) => [b.id, b]));
+    expect(gen.props.length).toBeGreaterThan(0);
+    expect(gen.props.length).toBeLessThanOrEqual(14);
+    for (const prop of gen.props) {
+      const biome = biomeById.get(prop.biomeId);
+      expect(biome).toBeDefined();
+      expect(biome!.propTiles).toContain(prop.texture);
+    }
+  });
+
+  it('每个群系的地形池非空且纹理键合法', () => {
+    const known = ['biome-tloor', 'biome-tbc'];
+    for (const b of BIOMES) {
+      expect(b.terrainTiles.length).toBeGreaterThan(0);
+      for (const t of b.terrainTiles) expect(known).toContain(t);
     }
   });
 });

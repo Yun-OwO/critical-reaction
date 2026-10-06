@@ -86,15 +86,50 @@ export interface Biome {
   decorKeys: string[];
   /** 装饰密度 0-1 */
   density: number;
+  /**
+   * 群系专属地形种类（v0.2.3）：每种地形是一块「预烘焙纹理瓦片 + 2.5D 投影」的实物，
+   * 从本群系的地形池中按中频噪声二选一/三选一——同一群系内观感统一、群系之间差异鲜明。
+   */
+  terrainTiles: string[];
+  /** 群系专属地物（大型实物：仪器残骸/晶簇/管线等，带 2.5D 倾斜投影） */
+  propTiles: string[];
+  /** 地形瓦片占网格的比例（1 = 完全替换网格底色，<1 时与底色混合） */
+  terrainCoverage: number;
 }
 
-/** 固定 5 种化学群系（组合由噪声决定，种类不随机——保证视觉语言可控）。 */
+/**
+ * 固定 5 种化学群系（组合由噪声决定，种类不随机——保证视觉语言可控）。
+ * 地形/地物映射（v0.2.3）：
+ *  - terrainTiles：群系专属地面瓦片（iso 菱形 2:1 投影，tloor 为中性石板，trap* 为何忆卫设备残骸）
+ *  - propTiles：   群系专属大型地物（斜投影 + 深度排序，Y 越大越靠前）
+ *  - decorKeys：   小型点缀（chemic 花/石/蘑菇，仍在用）
+ */
 export const BIOMES: readonly Biome[] = [
-  { id: 'crystalline', name: '结晶带', tint: 0x1b3a5c, tintAlpha: 0.16, accent: 0x67e8f9, puddleColor: null, decorKeys: ['tex-rock', 'tex-mushroom'], density: 0.5 },
-  { id: 'corrosive', name: '腐蚀沼', tint: 0x14361f, tintAlpha: 0.18, accent: 0x5cffb1, puddleColor: 0x5cffb1, decorKeys: ['tex-flower', 'tex-mushroom'], density: 0.6 },
-  { id: 'catalytic', name: '催化热土', tint: 0x3a1e10, tintAlpha: 0.2, accent: 0xff8a4c, puddleColor: 0xff8a4c, decorKeys: ['tex-thick', 'tex-rock'], density: 0.45 },
-  { id: 'inert', name: '惰性灰域', tint: 0x1c2126, tintAlpha: 0.14, accent: 0x64748b, puddleColor: null, decorKeys: ['tex-rock'], density: 0.3 },
-  { id: 'solvent', name: '溶剂海', tint: 0x122a4a, tintAlpha: 0.16, accent: 0x38bdf8, puddleColor: 0x38bdf8, decorKeys: ['tex-flower', 'tex-anthemy'], density: 0.55 }
+  {
+    id: 'crystalline', name: '结晶带', tint: 0x1b3a5c, tintAlpha: 0.16, accent: 0x67e8f9, puddleColor: null,
+    decorKeys: ['tex-rock', 'tex-mushroom'], density: 0.5,
+    terrainTiles: ['biome-tloor', 'biome-tbc'], propTiles: ['biome-trap-40'], terrainCoverage: 0.55
+  },
+  {
+    id: 'corrosive', name: '腐蚀沼', tint: 0x14361f, tintAlpha: 0.18, accent: 0x5cffb1, puddleColor: 0x5cffb1,
+    decorKeys: ['tex-flower', 'tex-mushroom'], density: 0.6,
+    terrainTiles: ['biome-tloor'], propTiles: ['biome-trap-41', 'tex-mushroom'], terrainCoverage: 0.45
+  },
+  {
+    id: 'catalytic', name: '催化热土', tint: 0x3a1e10, tintAlpha: 0.2, accent: 0xff8a4c, puddleColor: 0xff8a4c,
+    decorKeys: ['tex-thick', 'tex-rock'], density: 0.45,
+    terrainTiles: ['biome-tbc', 'biome-tloor'], propTiles: ['biome-trap-42', 'tex-thick'], terrainCoverage: 0.6
+  },
+  {
+    id: 'inert', name: '惰性灰域', tint: 0x1c2126, tintAlpha: 0.14, accent: 0x64748b, puddleColor: null,
+    decorKeys: ['tex-rock'], density: 0.3,
+    terrainTiles: ['biome-tloor'], propTiles: ['tex-rock'], terrainCoverage: 0.35
+  },
+  {
+    id: 'solvent', name: '溶剂海', tint: 0x122a4a, tintAlpha: 0.16, accent: 0x38bdf8, puddleColor: 0x38bdf8,
+    decorKeys: ['tex-flower', 'tex-anthemy'], density: 0.55,
+    terrainTiles: ['biome-tbc'], propTiles: ['biome-trap-43', 'tex-anthemy'], terrainCoverage: 0.5
+  }
 ];
 
 export interface TerrainTint {
@@ -106,12 +141,48 @@ export interface TerrainTint {
   alpha: number;
 }
 
+/** 等距棱柱（v0.2.3 体积化地形）：顶面菱形 + 挤出厚度，左右侧面分色。 */
+export interface TerrainBlock {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 顶面色（群系 accent） */
+  top: number;
+  /** 挤出厚度 px（12/20/28 三档） */
+  height: number;
+  /** 液洼/描边强调色（棱柱边缘线用） */
+  rim: number;
+  /** 所属群系 */
+  biomeId: string;
+}
+
+/** 群系大型地物（v0.2.3）：多棱柱组合体，占 1-2 格，带深度排序。 */
+export interface TerrainProp {
+  x: number;
+  y: number;
+  texture: string;
+  /** 投影高度偏移：origin(0.5,1) 后本体上浮，产生"立在地上"的感觉 */
+  lift: number;
+  biomeId: string;
+}
+
 export interface TerrainDecoration {
   x: number;
   y: number;
   texture: string;
   puddle: boolean;
   puddleColor: number;
+  biomeId: string;
+}
+
+/** 地形瓦片（v0.2.3）：群系专属地面实物，iso 菱形排布。 */
+export interface TerrainTile {
+  x: number;
+  y: number;
+  texture: string;
+  /** 每块瓦片的随机小角度（±6°），打破平铺感 */
+  rot: number;
   biomeId: string;
 }
 
@@ -122,6 +193,12 @@ export interface TerrainGeneration {
   tints: TerrainTint[];
   /** 地物（纹理装饰 + 液洼） */
   decorations: TerrainDecoration[];
+  /** 群系专属地形瓦片（2.5D 实物） */
+  tiles: TerrainTile[];
+  /** 体积化棱柱地形（高地格，顶面+厚度） */
+  blocks: TerrainBlock[];
+  /** 群系大型地物（棱柱组合体，深度排序渲染） */
+  props: TerrainProp[];
   /** 出现过的群系（单测断言分布） */
   biomesPresent: string[];
 }
@@ -169,6 +246,9 @@ export function generateTerrain(
   const biomeGrid: string[][] = [];
   const tints: TerrainTint[] = [];
   const decorations: TerrainDecoration[] = [];
+  const tiles: TerrainTile[] = [];
+  const blocks: TerrainBlock[] = [];
+  const props: TerrainProp[] = [];
   const biomesPresent = new Set<string>();
 
   for (let row = 0; row < rows; row += 1) {
@@ -195,9 +275,45 @@ export function generateTerrain(
         tints.push({ x: cx, y: cy, w: opt.cellW, h: opt.cellH, color: 0x000000, alpha: 0.16 });
       }
 
+      // 体积化地形（v0.2.3）：高地格生成等距棱柱数据——顶面 + 左/右侧面 + 挤出厚度。
+      // 高度按噪声分档（12/20/28px），群系色板三阶：顶面亮、左面中、右面暗。
+      if (tn > 0.42) {
+        const h = tn > 0.7 ? 28 : tn > 0.55 ? 20 : 12;
+        // 三阶色板由 accent 派生：顶面原色、左面 ×0.78、右面 ×0.55
+        blocks.push({
+          x: cx, y: cy, w: opt.cellW, h: opt.cellH,
+          top: biome.accent, height: h,
+          rim: biome.puddleColor ?? biome.accent,
+          biomeId: biome.id
+        });
+      }
+
       // 群系底色淡染：每 2×2 格画一次（成片、控制图形数量）
       if (col % 2 === 0 && row % 2 === 0) {
         tints.push({ x: cx + opt.cellW / 2, y: cy + opt.cellH / 2, w: opt.cellW * 2, h: opt.cellH * 2, color: biome.tint, alpha: biome.tintAlpha });
+      }
+
+      // 群系专属地形瓦片（v0.2.3）：按群系的地形池 + coverage 概率铺实物瓦片，
+      // 出生区不铺（保持起手画面干净）
+      if (rng() < biome.terrainCoverage
+          && Math.abs(cx - diamondCx) / diamondA + Math.abs(cy - diamondCy) / diamondB <= 0.9
+          && !(Math.abs(cx - diamondCx) < 300 && Math.abs(cy - diamondCy) < 180)) {
+        const texIdx = Math.floor(rng() * biome.terrainTiles.length) % biome.terrainTiles.length;
+        tiles.push({ x: cx, y: cy, texture: biome.terrainTiles[texIdx], rot: (rng() - 0.5) * 0.21, biomeId: biome.id });
+      }
+
+      // 群系大型地物（v0.2.3）：低频噪声控制点位，中频噪声决定是否生成——
+      // 一张大图上 props 稀疏而醒目（trap 设备残骸/棱柱组合体的纹理底座）
+      if (props.length < 14) {
+        const pn = biomeNoise.noise(col * opt.biomeScale * 2.5 + 31.7, row * opt.biomeScale * 2.5 - 17.3);
+        if (pn > 0.55 && rng() < 0.35) {
+          const px = cx + (rng() - 0.5) * opt.cellW * 0.5;
+          const py = cy + (rng() - 0.5) * opt.cellH * 0.5;
+          if (!(Math.abs(px - diamondCx) < 320 && Math.abs(py - diamondCy) < 200)) {
+            const pIdx = Math.floor(rng() * biome.propTiles.length) % biome.propTiles.length;
+            props.push({ x: px, y: py, texture: biome.propTiles[pIdx], lift: 6 + rng() * 10, biomeId: biome.id });
+          }
+        }
       }
 
       // 地物：高频噪声 + 群系密度（液洼或纹理装饰）
@@ -218,5 +334,5 @@ export function generateTerrain(
     }
   }
 
-  return { biomeGrid, tints, decorations, biomesPresent: Array.from(biomesPresent) };
+  return { biomeGrid, tints, decorations, tiles, blocks, props, biomesPresent: Array.from(biomesPresent) };
 }

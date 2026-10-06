@@ -6751,6 +6751,47 @@ export class GameScene extends Phaser.Scene {
       terrainGfx.closePath();
       terrainGfx.fillPath();
     }
+
+    // ---- 体积化地形（v0.2.3）：高地格绘制等距棱柱（顶面菱形 + 左右侧面挤出厚度）----
+    // 三阶色板：顶面 = accent 原色，左面 darken(28)，右面 darken(45)；厚度 12/20/28 三档
+    const isoBlock = (gx: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, height: number, top: number, rim: number): void => {
+      const sideL = Phaser.Display.Color.IntegerToColor(top).darken(28).color;
+      const sideR = Phaser.Display.Color.IntegerToColor(top).darken(45).color;
+      // 左侧面（朝左下的可见面）
+      gx.fillStyle(sideL, 1);
+      gx.beginPath();
+      gx.moveTo(x - w / 2, y);
+      gx.lineTo(x, y + h / 2);
+      gx.lineTo(x, y + h / 2 + height);
+      gx.lineTo(x - w / 2, y + height);
+      gx.closePath();
+      gx.fillPath();
+      // 右侧面（朝右下的可见面）
+      gx.fillStyle(sideR, 1);
+      gx.beginPath();
+      gx.moveTo(x + w / 2, y);
+      gx.lineTo(x, y + h / 2);
+      gx.lineTo(x, y + h / 2 + height);
+      gx.lineTo(x + w / 2, y + height);
+      gx.closePath();
+      gx.fillPath();
+      // 顶面（上移 height）
+      gx.fillStyle(top, 1);
+      gx.beginPath();
+      gx.moveTo(x, y - h / 2 - height);
+      gx.lineTo(x + w / 2, y - height);
+      gx.lineTo(x, y + h / 2 - height);
+      gx.lineTo(x - w / 2, y - height);
+      gx.closePath();
+      gx.fillPath();
+      // 顶面边缘线（群系强调色，勾勒体积轮廓）
+      gx.lineStyle(1.2, rim, 0.5);
+      gx.strokePath();
+    };
+    for (const blk of terrain.blocks) {
+      isoBlock(terrainGfx, blk.x, blk.y, blk.w, blk.h, blk.height, blk.top, blk.rim);
+    }
+
     for (const deco of terrain.decorations) {
       if (deco.puddle) {
         // 液洼：扁椭圆 + ADD 混合，化学溶剂质感
@@ -6767,6 +6808,35 @@ export class GameScene extends Phaser.Scene {
           .setRotation(Phaser.Math.FloatBetween(-0.12, 0.12));
         this.registerCullable(prop, 0, 200);
       }
+    }
+
+    // ---- 实物瓦片投影（v0.2.3）：群系专属地形实物，iso 倾斜贴地 + 深度按 y 排序 ----
+    for (const tile of terrain.tiles) {
+      const tileImg = this.add.image(tile.x, tile.y, tile.texture)
+        .setOrigin(0.5, 1)
+        .setAlpha(0.9)
+        .setRotation(tile.rot);
+      // 2.5D：scaleY 压缩 + 倾斜固定值模拟斜俯视；depth 按 y（越靠下越靠前）
+      tileImg.setScale(0.55, 0.42);
+      tileImg.setDepth(tile.y * 0.001 + 0.2);
+      this.registerCullable(tileImg, 0, 220);
+    }
+
+    // ---- 群系大型地物（v0.2.3）：trap 实物，带 2.5D 投影（origin 底部 + lift 上浮）----
+    for (const prop of terrain.props) {
+      const propImg = this.add.image(prop.x, prop.y, prop.texture)
+        .setOrigin(0.5, 1)
+        .setAlpha(0.95);
+      const pw = propImg.width * 0.5;
+      const ph = propImg.height * 0.5;
+      propImg.setDisplaySize(pw, ph);
+      // 深度按 y 排序（越靠下越靠前），跟玩家/敌人同层体系（depth 由 y 决定）
+      propImg.setDepth(prop.y * 0.001 + 0.25);
+      // 底部椭圆阴影（接地感）
+      const shadow = this.add.ellipse(prop.x, prop.y + 4, pw * 0.7, ph * 0.16, 0x000000, 0.3)
+        .setDepth(prop.y * 0.001 + 0.24);
+      this.registerCullable(propImg, 0, 260);
+      this.registerCullable(shadow, 0, 260);
     }
 
     // 战斗布景：Chemic 花/石/蘑菇/炼金台密集贴地（原尺寸、贴着地面、跟随相机）
