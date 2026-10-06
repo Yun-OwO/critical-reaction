@@ -6791,6 +6791,17 @@ export class GameScene extends Phaser.Scene {
     for (const blk of terrain.blocks) {
       isoBlock(terrainGfx, blk.x, blk.y, blk.w, blk.h, blk.height, blk.top, blk.rim);
     }
+    // 碰撞体积（v0.2.3）：仅较高棱柱可碰撞——静态体略小于视觉（留出贴边走位空间）；
+    // 敌人不与之碰撞（电子体穿行，避免 AI 卡死），玩家需要绕行
+    const obstacles = this.physics.add.staticGroup();
+    for (const blk of terrain.blocks) {
+      if (!blk.collidable) continue;
+      const body = obstacles.create(blk.x, blk.y + 6, 'biome-tloor');
+      body.setVisible(false);
+      body.setDisplaySize(76, 40);
+      body.refreshBody();
+    }
+    this.physics.add.collider(this.playerBody, obstacles);
 
     for (const deco of terrain.decorations) {
       if (deco.puddle) {

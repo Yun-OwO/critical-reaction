@@ -155,6 +155,8 @@ export interface TerrainBlock {
   rim: number;
   /** 所属群系 */
   biomeId: string;
+  /** 是否有碰撞体积（仅较高棱柱；矮棱柱是可走上的浅台） */
+  collidable: boolean;
 }
 
 /** 群系大型地物（v0.2.3）：多棱柱组合体，占 1-2 格，带深度排序。 */
@@ -210,6 +212,8 @@ export interface TerrainOptions {
   cellW?: number;
   cellH?: number;
   maxDecorations?: number;
+  /** 地形瓦片数量上限（防千级 Image 对象拖累移动端） */
+  maxTiles?: number;
 }
 
 const DEFAULTS: Required<TerrainOptions> = {
@@ -218,7 +222,8 @@ const DEFAULTS: Required<TerrainOptions> = {
   decorScale: 0.3,
   cellW: 96,
   cellH: 48,
-  maxDecorations: 34
+  maxDecorations: 34,
+  maxTiles: 420
 };
 
 /**
@@ -249,6 +254,8 @@ export function generateTerrain(
   const tiles: TerrainTile[] = [];
   const blocks: TerrainBlock[] = [];
   const props: TerrainProp[] = [];
+  /** 已放置碰撞棱柱的格子（切比雪夫间距 ≥2 保证通行缝隙，不产生死路） */
+  const occupiedCells = new Set<string>();
   const biomesPresent = new Set<string>();
 
   for (let row = 0; row < rows; row += 1) {
@@ -277,14 +284,32 @@ export function generateTerrain(
 
       // 体积化地形（v0.2.3）：高地格生成等距棱柱数据——顶面 + 左/右侧面 + 挤出厚度。
       // 高度按噪声分档（12/20/28px），群系色板三阶：顶面亮、左面中、右面暗。
+      // 碰撞与死路防护：
+      //  - 仅高度 ≥20 的棱柱有碰撞体积（12px 是可走上的浅台）
+      //  - 中央走廊 |dx|<320 禁用（门/宝箱/祝福/水池/撤离点全在 x≈中心 的走廊上）
+      //  - 碰撞棱柱之间切比雪夫间距 ≥2 格（保证通行缝隙，不产生死路）
+      //  - 外圈 margin ≤0.84 禁用（边界保持畅通可绕行）
       if (tn > 0.42) {
         const h = tn > 0.7 ? 28 : tn > 0.55 ? 20 : 12;
+        const collidable = h >= 20
+          && Math.abs(cx - diamondCx) >= 320
+          && Math.abs(cy - diamondCy) / diamondB <= 0.84;
+        const spaced = !collidable || (() => {
+          for (let dr = -2; dr <= 2; dr += 1) {
+            for (let dc = -2; dc <= 2; dc += 1) {
+              if (occupiedCells.has(`${row + dr}:${col + dc}`)) return false;
+            }
+          }
+          return true;
+        })();
+        if (collidable && spaced) occupiedCells.add(`${row}:${col}`);
         // 三阶色板由 accent 派生：顶面原色、左面 ×0.78、右面 ×0.55
         blocks.push({
           x: cx, y: cy, w: opt.cellW, h: opt.cellH,
           top: biome.accent, height: h,
           rim: biome.puddleColor ?? biome.accent,
-          biomeId: biome.id
+          biomeId: biome.id,
+          collidable: collidable && spaced
         });
       }
 
@@ -294,8 +319,8 @@ export function generateTerrain(
       }
 
       // 群系专属地形瓦片（v0.2.3）：按群系的地形池 + coverage 概率铺实物瓦片，
-      // 出生区不铺（保持起手画面干净）
-      if (rng() < biome.terrainCoverage
+      // 出生区不铺（保持起手画面干净）；数量上限防千级 Image 对象拖累移动端
+      if (tiles.length < opt.maxTiles && rng() < biome.terrainCoverage
           && Math.abs(cx - diamondCx) / diamondA + Math.abs(cy - diamondCy) / diamondB <= 0.9
           && !(Math.abs(cx - diamondCx) < 300 && Math.abs(cy - diamondCy) < 180)) {
         const texIdx = Math.floor(rng() * biome.terrainTiles.length) % biome.terrainTiles.length;
