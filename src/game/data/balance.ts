@@ -28,6 +28,14 @@ export const BALANCE = {
      */
     stopDrag: 2600
   },
+  shield: {
+    /** 基础护盾上限（v0.2.2：100 → 10，杜绝冲刺/攻击刷盾无敌） */
+    baseMax: 10,
+    /** 护盾自然衰减（/s）：刷新护盾不再是永久存档，停止获取即流失 */
+    decayPerSec: 4,
+    /** 同源护盾重复获取的收益递减窗口（秒）：窗口内重复获取收益减半 */
+    refreshWindowSec: 1.2
+  },
   dash: {
     /** 冲刺初速与最大速度放宽值 */
     velocity: 900,
@@ -43,20 +51,28 @@ export const BALANCE = {
   },
   temperature: {
     /** 战斗中的基础升温（/s）：用户标定 = 原 0.12 的 40% */
-    riseBase: 0.048,
+    riseBase: 0.075,
     /** 战斗中的温度相关升温系数（越热升得越快）：用户标定 = 原 0.28 的 40% */
-    riseHeatScale: 0.112,
-    /** 战斗中的自然散热（/s） */
-    coolInCombat: 0.12,
-    /** 非战斗散热（/s）：这是"温度逼你撤离"之外的缓冲，不能太快 */
-    coolOutOfCombat: 0.6,
+    riseHeatScale: 0.14,
+    /** 战斗中的自然散热（/s）：v0.2.2 = 0——温度只升不降，唯一出路是还原注入/里程碑/水池 */
+    coolInCombat: 0,
+    /** 非战斗散热（/s）：v0.2.2 = 0（同上，温度压力常驻） */
+    coolOutOfCombat: 0,
     /**
      * 反应热除数：每次氧化/还原命中的升温 = |ΔH| / 此值。
      * 氧化命中是高频事件（一层 80-120 次），除数过小（旧值 30 → 远程怪 +9.5°/击）
      * 会让反应热完全淹没被动升温，"还没见到 Boss 就熔毁"。240 使一整层
      * 大约落在 45-55°（过热边缘），Boss 战才有机会逼近临界。
      */
-    reactionHeatDivisor: 240,
+    /**
+     * 自适应难度（v0.2.2）：温度随「通关推进速度」上升——
+     * 房间清空快于 par 秒 = 高压，慢于 par×2 = 低压。攻击反应热已移除。
+     */
+    pacingParSeconds: 45,
+    /** 推进最快时的单次房间升温（°） */
+    pacingMaxRise: 18,
+    /** 推进最慢时的单次房间升温（°） */
+    pacingMinRise: 4,
     /**
      * 还原态吸热降温（§2.2 还原 = 吸热方向）：每次向敌人注入 1 颗电子降温此值。
      * 定位：还原态是本作唯一的"主动控温"手段——高热时切还原既安全又降温，
@@ -91,7 +107,11 @@ export const BALANCE = {
     killHeatDivisor: 25,
     /** 撤离完成的基础奖励（与携带样本相加后再乘撤离点倍率） */
     extractionBase: 2,
-    extractionHeatDivisor: 20
+    extractionHeatDivisor: 20,
+    /** 最终 Boss 击败后的通关奖励（撤离结算时一次性发放） */
+    finalClearBonus: 60,
+    /** 隐藏撤离点「稀有样本」奖励（一次性，不吃倍率） */
+    hiddenExtractionBonus: 15
   },
   economy: {
     /**
@@ -119,7 +139,7 @@ export const BALANCE = {
     /** 特殊攻击单次消耗自由电子上限 */
     specialMaxConsume: 3,
     /** 基础攻击间隔（秒）：所有武器冷却的单一真相源 */
-    baseAttackInterval: 0.2,
+    baseAttackInterval: 0.4,
     /** 基础自由电子上限（商店扩容 +1×2，硬上限 = MAX_FREE_DOTS 6） */
     baseFreeElectrons: 5,
     runawayFullRatio: 0.8,
@@ -160,8 +180,9 @@ export function validateBalance(): string[] {
   if (BALANCE.player.maxVelocity < 200 || BALANCE.player.maxVelocity > 1200) {
     issues.push('maxVelocity 超出可玩区间 200-1200');
   }
-  if (BALANCE.temperature.coolOutOfCombat <= BALANCE.temperature.riseBase) {
-    issues.push('非战斗散热必须大于战斗基础升温，否则温度不可回落');
+  // 自然散热已移除（v0.2.2）：温度只升不降，靠还原注入/里程碑/水池回落
+  if (BALANCE.temperature.coolInCombat !== 0 || BALANCE.temperature.coolOutOfCombat !== 0) {
+    issues.push('自然散热应为 0（设计决策：温度只升不降，降温走还原注入）');
   }
   if (BALANCE.dash.cooldownSeconds <= 0) issues.push('冲刺冷却必须为正');
   if (BALANCE.samples.killHeatDivisor <= 0) issues.push('killHeatDivisor 必须为正，避免除零');

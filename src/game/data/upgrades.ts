@@ -71,32 +71,32 @@ export const BOON_POOL: BoonDef[] = [
   {
     id: 'h-atk-overload', name: '过载打击', desc: '氧化攻击额外夺取 {n} 颗电子',
     icon: '💥', slot: 'attack', school: 'H', rarity: 'common',
-    rarityScale: { common: 1, rare: 1, epic: 2, mythic: 2 }
+    rarityScale: {common: 1, rare: 1, epic: 1, mythic: 2}
   },
   {
     id: 'h-atk-chain', name: '链式反应', desc: '氧化命中后弹射夺取最近敌人 {n} 颗电子',
     icon: '⚡', slot: 'attack', school: 'H', rarity: 'rare',
-    rarityScale: { common: 0, rare: 1, epic: 1, mythic: 2 }
+    rarityScale: {common: 0, rare: 1, epic: 1, mythic: 1}
   },
   {
     id: 'h-sp-fission', name: '裂变冲击', desc: '特殊攻击命中时，对周围敌人各夺取 {n} 颗电子',
     icon: '☢', slot: 'special', school: 'H', rarity: 'common',
-    rarityScale: { common: 1, rare: 1, epic: 2, mythic: 2 }
+    rarityScale: {common: 1, rare: 1, epic: 1, mythic: 2}
   },
   {
     id: 'h-sp-nuke', name: '核聚变', desc: '特殊攻击夺取电子数 ×{n}',
     icon: '🔥', slot: 'special', school: 'H', rarity: 'rare',
-    rarityScale: { common: 0, rare: 2, epic: 3, mythic: 3 }
+    rarityScale: {common: 0, rare: 2, epic: 2, mythic: 3}
   },
   {
     id: 'h-dash-detonate', name: '引爆冲刺', desc: '冲刺结束爆炸，夺取范围内敌人各 {n} 颗电子',
     icon: '💣', slot: 'dash', school: 'H', rarity: 'common',
-    rarityScale: { common: 1, rare: 1, epic: 2, mythic: 2 }
+    rarityScale: {common: 1, rare: 1, epic: 1, mythic: 2}
   },
   {
     id: 'h-pass-glass', name: '玻璃大炮', desc: '氧化夺取 +{n} 颗电子，但受伤额外失去1个价电子',
     icon: '💎', slot: 'passive', school: 'H', rarity: 'epic',
-    rarityScale: { common: 0, rare: 0, epic: 2, mythic: 3 }
+    rarityScale: {common: 0, rare: 0, epic: 1, mythic: 2}
   },
 
   // ===== 氧·氧化 (O) — 持续/范围电子效果 =====
@@ -108,7 +108,7 @@ export const BOON_POOL: BoonDef[] = [
   {
     id: 'o-atk-acid', name: '酸蚀', desc: '攻击降低敌人50%移速2秒，{n}秒内每秒额外夺取1颗电子',
     icon: '🧪', slot: 'attack', school: 'O', rarity: 'rare',
-    rarityScale: { common: 0, rare: 1, epic: 1, mythic: 2 }
+    rarityScale: {common: 0, rare: 1, epic: 1, mythic: 1}
   },
   {
     id: 'o-sp-corrode', name: '腐蚀扩散', desc: '特殊攻击留下酸池，范围内每秒夺取 {n} 颗电子',
@@ -140,7 +140,7 @@ export const BOON_POOL: BoonDef[] = [
   {
     id: 'c-atk-lattice', name: '晶格冲击', desc: '攻击20%概率眩晕1秒，眩晕期间额外夺取 {n} 颗电子',
     icon: '🔷', slot: 'attack', school: 'C', rarity: 'rare',
-    rarityScale: { common: 0, rare: 2, epic: 3, mythic: 3 }
+    rarityScale: {common: 0, rare: 1, epic: 2, mythic: 2}
   },
   {
     id: 'c-sp-wall', name: '分子壁垒', desc: '特殊攻击生成护盾墙，阻挡弹幕 {n} 秒',

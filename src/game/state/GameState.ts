@@ -82,6 +82,8 @@ export interface GameState {
   extraBoonSlots: number;
   /** 已拥有的觉醒祝福 id（每局各一次） */
   ownedSpecialBoons: string[];
+  /** 进化系统：各染料的进化等级（局内染料房喂养，colorist 式属性成长） */
+  dyeEvolution: Record<string, number>;
   /** 染色槽：主/副/底（100%/50%/25%效果）。 */
   dyeSlots: [DyeSlot, DyeSlot, DyeSlot];
   /** 背包容量（§4.3 负载系统）：携带样本量 / 容量 决定移速与冲刺冷却。 */
@@ -136,7 +138,9 @@ export const gameState: GameState = {
   /** 觉醒「祝福槽位 +1」的可用次数 */
   extraBoonSlots: 0,
   /** 已拥有的觉醒祝福 id（每局各一次） */
-  ownedSpecialBoons: []
+  ownedSpecialBoons: [],
+  /** 进化等级（染料 id → 等级） */
+  dyeEvolution: {}
 };
 
 /** 获得自由电子，自动封顶。 */
@@ -213,6 +217,7 @@ export function resetRun(): void {
     disabledBoons: [],
     extraBoonSlots: 0,
     ownedSpecialBoons: [],
+    dyeEvolution: {},
     dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
     bagCapacity: BASE_BAG_CAPACITY,
     carriedGear: []

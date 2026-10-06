@@ -8,7 +8,7 @@ import { profileState, setActiveRelic, equipDyePair, upgradeRelic, getRelicLevel
 import { MAX_WEAPON_LEVEL, weaponUpgradeCost, weapons } from '../game/data/weapons';
 import { GEAR_RARITY_META, GEAR_SLOTS, GEAR_SLOT_META, gearsForSlot, getGear, warehouseCount, type GearSlot } from '../game/data/gear';
 
-type Tab = '画面' | '声音' | '操作' | '游戏性';
+type Tab = '画面' | '声音' | '操作' | '游戏性' | '开发者';
 const tabs: Tab[] = ['画面', '声音', '操作', '游戏性'];
 let activeTab: Tab = '画面';
 
@@ -64,7 +64,12 @@ function renderSettings(): void {
       ? [['主音量', numLabel(settings.volume, '%'), 'volume'], ['音效', boolLabel(settings.effectsEnabled), 'effects'], ['环境音', boolLabel(settings.ambientSoundEnabled), 'ambient-sound'], ['冲刺反馈', boolLabel(settings.dashSoundEnabled), 'dash-sound']]
       : activeTab === '操作'
         ? [['移动方式', 'WASD / 摇杆', 'movement'], ['攻击方式', '左键 / 空格', 'attack'], ['冲刺方式', '鼠标右键', 'dash'], ['状态切换', 'R 键', 'mode']]
-        : [['自动瞄准', '视野内单位', 'aim'], ['电子反馈', boolLabel(settings.electronFeedbackEnabled), 'electron-feedback'], ['辅助提示', boolLabel(settings.hintsEnabled), 'hints']];
+        : activeTab === '开发者'
+          ? [
+              ['调试叠层（FPS）', boolLabel(settings.devOverlayEnabled), 'dev-overlay'],
+              ['显示碰撞箱', boolLabel(settings.devHitboxEnabled), 'dev-hitbox']
+            ]
+          : [['自动瞄准', '视野内单位', 'aim'], ['电子反馈', boolLabel(settings.electronFeedbackEnabled), 'electron-feedback'], ['辅助提示', boolLabel(settings.hintsEnabled), 'hints']];
   content.innerHTML = rows.map(([label, value, key]) => `<div class="setting-row"><span class="setting-label">${label}</span><button class="setting-value" type="button" data-setting="${key}">${value}<span class="setting-chevron">›</span></button></div>`).join('');
   content.querySelectorAll<HTMLButtonElement>('[data-setting]').forEach((button) => {
     button.addEventListener('click', () => adjustSetting(button.dataset.setting ?? ''));
@@ -102,7 +107,7 @@ function adjustSetting(key: string): void {
     renderSettings();
     return;
   }
-  if (['bloom', 'shadow', 'ambient', 'shake', 'effects', 'ambient-sound', 'electron-feedback', 'hints', 'dash-sound'].includes(key)) {
+  if (['bloom', 'shadow', 'ambient', 'shake', 'effects', 'ambient-sound', 'electron-feedback', 'hints', 'dash-sound', 'dev-overlay', 'dev-hitbox'].includes(key)) {
     toggleSetting(key);
     renderSettings();
     return;
@@ -602,16 +607,34 @@ export function mountMenuUi(game: Phaser.Game): void {
     window.clearTimeout(resolutionTimer);
     resolutionTimer = window.setTimeout(() => applyAdaptiveResolution(game), 150);
   };
-  const onFullscreenChange = (): void => scheduleAdaptiveResolution();
+  // 全屏后的多次确认：竖屏进入 → 全屏转横屏时，resize 事件可能在 fullscreenchange
+  // 之前就到齐（防抖读到的是旧视口），且部分浏览器旋转动画分多帧落位。
+  // 因此全屏切换后在 150ms / 500ms / 1200ms 三个时点各重算一次——
+  // applyAdaptiveResolution 内部对"分辨率未变化"是空操作，重复调用安全。
+  const onFullscreenChange = (): void => {
+    scheduleAdaptiveResolution();
+    window.setTimeout(() => applyAdaptiveResolution(game), 500);
+    window.setTimeout(() => applyAdaptiveResolution(game), 1200);
+  };
   const onWindowResize = (): void => {
     // APK（Capacitor）内没有 fullscreenElement，但沉浸式布局稳定后视口会变（如刚启动时
     // 状态栏 inset 尚未收起），必须跟着重算内部分辨率；浏览器里仍保持原判定避免地址栏抖动
     const inApp = typeof window !== 'undefined' && 'Capacitor' in window;
     if (document.fullscreenElement || inApp) scheduleAdaptiveResolution();
   };
+  // 旋转事件（竖↔横）：全屏下旋转不触发 fullscreenchange，必须单独监听
+  const onOrientationChange = (): void => {
+    const inApp = typeof window !== 'undefined' && 'Capacitor' in window;
+    if (document.fullscreenElement || inApp) {
+      scheduleAdaptiveResolution();
+      window.setTimeout(() => applyAdaptiveResolution(game), 600);
+    }
+  };
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   window.addEventListener('resize', onWindowResize);
+  window.addEventListener('orientationchange', onOrientationChange);
+  window.screen?.orientation?.addEventListener?.('change', onOrientationChange);
   // 隐藏触发按钮：LobbyScene 交互点会调用 .click() 打开对应面板
   element<HTMLButtonElement>('open-settings')?.addEventListener('click', () => {
     uiSfx('sfx-ka'); // 面板打开

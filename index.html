@@ -168,7 +168,7 @@
         background: radial-gradient(ellipse at center, rgba(0,0,0,.55) 0%, rgba(0,0,0,.88) 100%);
         pointer-events: none;
       }
-      #report-overlay.show { display: flex; }
+      #report-overlay.show { display: flex; pointer-events: auto; }
       #report-overlay.fade-out { opacity: 0; transition: opacity .5s ease-in; }
       .report-panel {
         width: min(430px, calc(100vw - 32px));
@@ -912,7 +912,7 @@
       <section id="settings-panel" class="ui-panel" aria-label="设置" hidden>
         <h1>设置</h1>
         <div class="ui-panel-scroll">
-          <div class="ui-tabs"><button class="ui-button active" data-tab="画面">画面</button><button class="ui-button" data-tab="声音">声音</button><button class="ui-button" data-tab="操作">操作</button><button class="ui-button" data-tab="游戏性">游戏性</button></div>
+          <div class="ui-tabs"><button class="ui-button active" data-tab="画面">画面</button><button class="ui-button" data-tab="声音">声音</button><button class="ui-button" data-tab="操作">操作</button><button class="ui-button" data-tab="游戏性">游戏性</button><button class="ui-button" data-tab="开发者">开发者</button></div>
           <pre id="settings-content"></pre>
         </div>
         <div class="ui-actions"><button id="back-home" class="ui-button">返回　›</button></div>

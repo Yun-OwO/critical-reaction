@@ -36,6 +36,10 @@ export interface GameSettings {
   ambientSoundEnabled: boolean;
   dashSoundEnabled: boolean;
   aspectRatio: AspectRatio;
+  /** 开发者选项：右上角调试叠层（FPS 等） */
+  devOverlayEnabled: boolean;
+  /** 开发者选项：显示物理碰撞箱 */
+  devHitboxEnabled: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -49,7 +53,9 @@ const DEFAULTS: GameSettings = {
   effectsEnabled: true,
   ambientSoundEnabled: true,
   dashSoundEnabled: true,
-  aspectRatio: 'auto'
+  aspectRatio: 'auto',
+  devOverlayEnabled: false,
+  devHitboxEnabled: false
 };
 
 /**
@@ -86,7 +92,9 @@ export function getSettings(): GameSettings {
     effectsEnabled: readBool('effects', DEFAULTS.effectsEnabled),
     ambientSoundEnabled: readBool('ambient-sound', DEFAULTS.ambientSoundEnabled),
     dashSoundEnabled: readBool('dash-sound', DEFAULTS.dashSoundEnabled),
-    aspectRatio: readString('aspect-ratio', DEFAULTS.aspectRatio) as AspectRatio
+    aspectRatio: readString('aspect-ratio', DEFAULTS.aspectRatio) as AspectRatio,
+    devOverlayEnabled: readBool('dev-overlay', DEFAULTS.devOverlayEnabled),
+    devHitboxEnabled: readBool('dev-hitbox', DEFAULTS.devHitboxEnabled)
   };
 }
 

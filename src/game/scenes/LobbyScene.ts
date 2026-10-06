@@ -136,6 +136,8 @@ export class LobbyScene extends Phaser.Scene {
   }
 
   public update(_time: number, delta: number): void {
+    // 教程条件轮询（缺失此处导致大厅站点步骤永不推进——实测反馈 v0.2.1）
+    this.tutorial?.update(delta / 1000);
     const dt = delta / 1000;
     const kbX = Number(this.keys.right.isDown) - Number(this.keys.left.isDown);
     const kbY = Number(this.keys.down.isDown) - Number(this.keys.up.isDown);

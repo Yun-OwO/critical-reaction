@@ -10,9 +10,10 @@ import { getDye } from '../data/dyes';
 import { ElectronCoreWidget } from '../ui/electronCoreWidget';
 import { BASE_COLORS, STATE_COLORS, hexString } from '../visual/palette';
 import { describeElectronState } from '../combat/electronState';
+import { SCHOOL_COLORS, getBoonDef } from '../data/upgrades';
 import { BALANCE } from '../data/balance';
+import { getSettings } from '../state/SettingsState';
 import { describeLoad } from '../combat/load';
-import { layoutRoomTree, layoutBounds, type MapNode, type MapEdge, type NodePos } from '../ui/minimap';
 import {
   computeGeometryScale,
   computeTouchControlLayout,
@@ -54,18 +55,24 @@ const TEMP_STATES = [
 
 export class UIScene extends Phaser.Scene {
   private freeElectronText!: Phaser.GameObjects.Text;
-  private dyeText!: Phaser.GameObjects.Text;
   private dashText!: Phaser.GameObjects.Text;
   private eventText!: Phaser.GameObjects.Text;
   private electronDeltaText!: Phaser.GameObjects.Text;
   private bossNameText!: Phaser.GameObjects.Text;
   private weaponText!: Phaser.GameObjects.Text;
-  /** 小地图：紧凑态（当前+上一间）与展开态（完整走过路径树） */
-  private minimapGfx!: Phaser.GameObjects.Graphics;
-  private minimapExpanded = false;
-  private minimapLastKey = '';
-  private keyM!: Phaser.Input.Keyboard.Key;
-  private boonText!: Phaser.GameObjects.Text;
+  /** 哈迪斯式紧凑数值：条右血量 / 电子数 / 模式芯片 / 右下样本负载催化 */
+  private hpValText!: Phaser.GameObjects.Text;
+  private electronValText!: Phaser.GameObjects.Text;
+  private modeChipText!: Phaser.GameObjects.Text;
+  private sampleValText!: Phaser.GameObjects.Text;
+  private loadValText!: Phaser.GameObjects.Text;
+  private catalValText!: Phaser.GameObjects.Text;
+  /** 祝福图标芯片列（左缘）：菱形底 + 图标 + 等级徽标 */
+  private boonChipLayer!: Phaser.GameObjects.Container;
+  private boonChipKey = '';
+  private hudRightVal = 0;
+  /** 开发者调试叠层：右上角 FPS / 敌人数 / 碰撞箱状态（设置面板「开发者」页开关） */
+  private devOverlayText!: Phaser.GameObjects.Text;
   private tempLabel!: Phaser.GameObjects.Text;
   private tempStateLabel!: Phaser.GameObjects.Text;
   // ---- EHP 血条 ----
@@ -73,12 +80,9 @@ export class UIScene extends Phaser.Scene {
   private shieldBarFill!: Phaser.GameObjects.Rectangle;
   /** 电子轨道生命核心（§14.3）：价电子轨道 + 原子核 + 护盾弧 + 自由电子卫星。 */
   private electronCore!: ElectronCoreWidget;
-  private ehpLabel!: Phaser.GameObjects.Text;
-  private modeLabel!: Phaser.GameObjects.Text;
+
   /** 电子态（§2.1）：与攻击模式无关，由价电子亏损/自由电子持有量推导。 */
-  private electronStateText!: Phaser.GameObjects.Text;
   /** 染料槽图形化（§14.5）：主/副/底 三个色块 + 纯度。 */
-  private dyeChips: { bg: Phaser.GameObjects.Rectangle; swatch: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; purity: Phaser.GameObjects.Text }[] = [];
   // ---- 温度计 ----
   private tempFill!: Phaser.GameObjects.Rectangle;
   private tempTicks!: Phaser.GameObjects.Graphics;
@@ -124,7 +128,6 @@ export class UIScene extends Phaser.Scene {
     // 而这些数组/指针字段不会随 shutdown 复位。若不显式清空，会累积上一轮已销毁的显示对象，
     // 之后 refreshDyeChips 等对其调用 setText 会因 canvas 已释放抛异常（drawImage of null），
     // 该异常会让 Phaser 主循环的下一帧不再排队，表现为整局画面永久冻结。
-    this.dyeChips = [];
     this.touchControls = [];
     this.bossPhasePips = [];
     this.bossMaxElectrons = 0;
@@ -175,65 +178,29 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0, 0).setDepth(11);
     this.shieldBarFill = this.add.rectangle(barX + 1, barY - 6 * s, this.ehpBarW - 2, 5 * s, STATE_COLORS.shield, 0.95)
       .setOrigin(0, 0).setDepth(11);
+    // 哈迪斯式血量：条右侧纯数值（护盾以 +N 追加），不再写句子
+    this.hpValText = this.add.text(barX + this.ehpBarW + 14 * s, barY + 10 * s, '', {
+      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(15 * s)}px`
+    }).setOrigin(0, 0.5).setDepth(12);
 
     // ---- 电子轨道生命核心（§14.3）：置于血条左上方，成为左下角的视觉锚点 ----
     const coreX = barX + coreR + 4 * s;
     const coreY = barY - coreR - 22 * s;
     this.electronCore = new ElectronCoreWidget(this, coreX, coreY, coreR);
 
-    // 核心右侧的数值块：四行整体落在核心中心附近（行距 16，中心上方 31 到下方 17），
-    // 避免向上顶进摇杆、向下压住血条
-    const infoX = coreX + coreR + 16 * s;
-    this.freeElectronText = this.add.text(infoX, coreY - 31 * s, '', {
-      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(15 * s)}px`
-    }).setDepth(12);
-    this.ehpLabel = this.add.text(infoX, coreY - 15 * s, '', {
-      color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
-    }).setDepth(12);
-    this.modeLabel = this.add.text(infoX, coreY + 1 * s, '', {
-      color: '#FFD199', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
-    }).setDepth(12);
-    // §2.1 氧化态/还原态修正（与"攻击模式"是两个不同概念，必须分开显示避免歧义）
-    this.electronStateText = this.add.text(infoX, coreY + 17 * s, '', {
-      color: hexString(BASE_COLORS.textDim), fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
-    }).setDepth(12);
+    // 哈迪斯式紧凑数值：图标+数值（细节全部收进状态面板 ☰）
+    this.electronValText = this.add.text(coreX + coreR + 12 * s, coreY, '', {
+      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * s)}px`, fontStyle: 'bold'
+    }).setOrigin(0, 0.5).setDepth(12);
+    this.modeChipText = this.add.text(coreX + coreR + 84 * s, coreY, '', {
+      color: '#FF8A4C', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`, fontStyle: 'bold'
+    }).setOrigin(0, 0.5).setDepth(12);
 
     this.dashText = this.add.text(barX, barY + 34 * s, '', {
       color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(13 * s)}px`
     }).setDepth(12);
 
-    // ---- 右下：染料槽图形化（§14.5）+ 样本 / 模式 ----
-    // 移动端按钮组占据右下角，这里整体右对齐到按钮组左侧，避免被按钮压住
-    const hudRight = this.hudRightEdge(W, s);
-    const chipY = H - 62 * s;
-    const chipW = 52 * s;
-    const chipGap = 6 * s;
-    const chipRight = hudRight;
-    for (let i = 0; i < 3; i += 1) {
-      const x = chipRight - chipW - i * (chipW + chipGap);
-      const bg = this.add.rectangle(x + chipW / 2, chipY, chipW, 34 * s, 0x0b1e2d, 0.85)
-        .setStrokeStyle(1.2, BASE_COLORS.panelEdge, 0.9).setDepth(11);
-      const swatch = this.add.rectangle(x + 7 * s, chipY, 10 * s, 26 * s, BASE_COLORS.panel, 1)
-        .setOrigin(0, 0.5).setDepth(12);
-      const label = this.add.text(x + 22 * s, chipY - 7 * s, '', {
-        color: hexString(BASE_COLORS.text), fontFamily: 'monospace', fontSize: `${Math.round(11 * s)}px`
-      }).setDepth(12);
-      const purity = this.add.text(x + 22 * s, chipY + 7 * s, '', {
-        color: hexString(BASE_COLORS.textDim), fontFamily: 'monospace', fontSize: `${Math.round(9 * s)}px`
-      }).setDepth(12);
-      this.dyeChips.push({ bg, swatch, label, purity });
-    }
-    // 槽位标签（主/副/底）固定在色块上方
-    const slotTitles = ['主', '副', '底'];
-    this.dyeChips.forEach((chip, i) => {
-      this.add.text(chip.bg.x, chipY - 26 * s, slotTitles[i], {
-        color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(10 * s)}px`
-      }).setOrigin(0.5).setDepth(12);
-    });
-
-    this.dyeText = this.add.text(hudRight, H - 22 * s, '', {
-      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
-    }).setOrigin(1, 1).setDepth(12);
+    // 右下染料槽芯片已移除（v0.2.2：进化等级改由状态面板与主槽徽标呈现）
 
     // ---- 右侧：温度计（设计文档 §14.4）----
     const thermoX = W - 44 * s;
@@ -269,12 +236,6 @@ export class UIScene extends Phaser.Scene {
       color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
     }).setOrigin(0.5).setDepth(12);
 
-    // ---- 右上：小地图（顶部房间文字改造：图标 + 树状走过路径；M 键/点击展开） ----
-    this.minimapGfx = this.add.graphics().setScrollFactor(0).setDepth(15);
-    const mmZone = this.add.zone(W - 92 * s, 30 * s, 170 * s, 62 * s).setScrollFactor(0).setDepth(16).setInteractive({ useHandCursor: true });
-    mmZone.on('pointerdown', () => { this.minimapExpanded = !this.minimapExpanded; this.minimapLastKey = ''; });
-    this.keyM = this.input.keyboard!.addKey('M');
-
     // ---- 顶部：Boss 血条 ----
     const bossBarW = Math.min(620 * s, W - 320 * s);
     this.bossNameText = this.add.text(W / 2, 56 * s, '', {
@@ -293,15 +254,32 @@ export class UIScene extends Phaser.Scene {
     this.eventText = this.add.text(W / 2, 140 * s, '', {
       color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(22 * s)}px`
     }).setOrigin(0.5).setAlpha(0).setDepth(12);
-    this.electronDeltaText = this.add.text(barX + this.ehpBarW + 40 * s, barY + 10 * s, '', {
+    this.electronDeltaText = this.add.text(barX + this.ehpBarW + 14 * s, barY - 30 * s, '', {
       color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(20 * s)}px`, fontStyle: 'bold'
     }).setOrigin(0, 0.5).setAlpha(0).setDepth(12);
     this.weaponText = this.add.text(W / 2, H - 34 * s, '', {
       color: '#A0A0A0', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
     }).setOrigin(0.5, 1).setAlpha(0).setDepth(12);
-    this.boonText = this.add.text(barX, barY - 130 * s, '', {
-      color: '#a78bfa', fontFamily: 'monospace', fontSize: `${Math.round(13 * s)}px`, lineSpacing: 4
-    }).setDepth(12).setAlpha(0);
+    // 哈迪斯式祝福列：左缘垂直图标芯片（菱形底 + 图标 + 等级徽标）
+    this.boonChipLayer = this.add.container(0, 0).setDepth(12);
+    this.boonChipKey = '';
+    // 哈迪斯式右下数值行：样本 ◆ / 负载 ▲ / 催化 ✦（右对齐链，图标+数值）
+    this.sampleValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
+      color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+    }).setOrigin(1, 1).setDepth(12);
+    this.loadValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
+      color: '#D4E8EE', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+    }).setOrigin(1, 1).setDepth(12);
+    this.catalValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
+      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+    }).setOrigin(1, 1).setDepth(12);
+    this.hudRightVal = this.hudRightEdge(W, s);
+    this.sampleValText.setPosition(this.hudRightVal, H - 22 * s);
+    // 开发者调试叠层：右上角小字（FPS / 敌人数 / 碰撞箱），默认隐藏
+    this.devOverlayText = this.add.text(W - 14 * s, 14 * s, '', {
+      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`,
+      align: 'right', backgroundColor: '#00000099', padding: { x: 6 * s, y: 4 * s }
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(9998).setVisible(false);
 
     this.unlisten = [
       on('reaction', (payload) => { const p = payload as { type?: string }; haptic(20); this.showEvent(p?.type === 'runaway' ? '⚠ 临界失控 · 反应取消' : '反应触发 · 温度上升'); }),
@@ -402,7 +380,7 @@ export class UIScene extends Phaser.Scene {
     this.refreshBossBar();
     this.refreshDangerVignette();
     this.drawOffscreenIndicators();
-    this.drawMinimap();
+    this.updateDevOverlay();
   }
 
   /** 电子轨道生命核心：把「电子即生命」渲染成可一眼读出缺失的轨道图。 */
@@ -435,9 +413,9 @@ export class UIScene extends Phaser.Scene {
       const shieldW = Math.max(4, (this.ehpBarW - 2) * Math.min(1, gameState.shieldHp / 200));
       if (this.shieldBarFill.width !== shieldW) this.shieldBarFill.width = shieldW;
     }
-    setTextSafe(this.freeElectronText, `自由电子 ${gameState.freeElectrons}/${gameState.maxFreeElectrons}`);
-    setTextSafe(this.ehpLabel, `电子HP ${Math.max(0, Math.ceil(gameState.ehp))}/${gameState.ehpMax}${gameState.shieldHp > 0 ? `   护盾 ${Math.ceil(gameState.shieldHp)}` : ''}`);
-    setTextSafe(this.modeLabel, gameState.mode === 'oxidized' ? '攻击模式：氧化夺取' : '攻击模式：还原充能');
+    // 哈迪斯式紧凑数值：条右数字 / 电子数 / 模式芯片
+    setTextSafe(this.hpValText, `${Math.max(0, Math.ceil(gameState.ehp))}/${gameState.ehpMax}${gameState.shieldHp > 0 ? ` +${Math.ceil(gameState.shieldHp)}` : ''}`);
+    setTextSafe(this.electronValText, `${gameState.freeElectrons}/${gameState.maxFreeElectrons}`);
     // §2.1 电子态：把真实生效的修正直接写出来，避免玩家只能靠猜
     const es = describeElectronState(
       gameState.valence,
@@ -452,8 +430,10 @@ export class UIScene extends Phaser.Scene {
     if (es.cdReduction > 0) parts.push(`冷却 -${es.cdReduction}%`);
     if (es.shieldBonusPct > 0) parts.push(`护盾上限 +${es.shieldBonusPct}%`);
     if (es.overloaded) parts.push(`过载 ${BALANCE.overload.selfDamagePerSec}/s（温度超限 · 还原态降温解除）`);
-    setTextSafe(this.electronStateText, parts.length > 0 ? `电子态：${es.label} · ${parts.join(' · ')}` : `电子态：${es.label}`);
-    setColorSafe(this.electronStateText, es.overloaded ? '#FF8A4C' : es.overOxidized ? '#FF4D6D' : es.lost > 0 ? '#FFD199' : hexString(BASE_COLORS.textDim));
+    // 过载/濒死仅以颜色告警，细节在状态面板
+    setColorSafe(this.electronValText, es.overloaded ? '#FF5C7A' : es.overOxidized ? '#FF4D6D' : '#FFFFFF');
+    setTextSafe(this.modeChipText, gameState.mode === 'oxidized' ? '◆ 氧化' : '◆ 还原');
+    setColorSafe(this.modeChipText, gameState.mode === 'oxidized' ? '#FF8A4C' : '#FDE047');
 
     // 温度计
     const tempRatio = Phaser.Math.Clamp(gameState.temperature / 100, 0, 1);
@@ -474,29 +454,59 @@ export class UIScene extends Phaser.Scene {
 
     // §4.3 负载：携带样本 / 背包容量，直接决定移速与冲刺冷却
     const load = describeLoad(gameState.samples, gameState.bagCapacity);
-    const loadWarn = load.band.speedMult < 1 ? ` · 移速 ${Math.round(load.band.speedMult * 100)}%` : '';
-    // 搜打撤：局内战利品数量（撤离成功才带得出去，死亡丢失）
-    const lootNote = gameState.carriedGear.length > 0 ? ` · 战利品 ${gameState.carriedGear.length}` : '';
-    setTextSafe(this.dyeText, `样本 ${gameState.samples}/${gameState.bagCapacity} · 负载 ${load.percent}% ${load.band.label}${loadWarn}${lootNote}${gameState.reactionLayers > 0 ? ` · 催化 L${gameState.reactionLayers}` : ''}   [R] 切换氧化/还原`);
-    setColorSafe(this.dyeText, load.band.speedMult < 0.75 ? '#FF8A4C' : load.band.speedMult < 1 ? '#FFD199' : hexString(BASE_COLORS.text));
-    this.refreshDyeChips();
     setTextSafe(this.dashText, gameState.dashCd > 0 ? `冲刺冷却 ${gameState.dashCd.toFixed(1)}s` : this.isMobile ? '冲刺就绪' : '冲刺就绪 [鼠标右键]');
+    // 哈迪斯式右下数值行更新：样本 ◆ / 负载 ▲ / 催化 ✦（右对齐链）
+    setTextSafe(this.sampleValText, `◆ ${gameState.samples}/${gameState.bagCapacity}`);
+    setTextSafe(this.loadValText, `▲ ${load.percent}%${gameState.carriedGear.length > 0 ? ` ◇${gameState.carriedGear.length}` : ''}`);
+    const loadColor = load.band.speedMult < 0.75 ? '#FF8A4C' : load.band.speedMult < 1 ? '#FFD199' : '#D4E8EE';
+    setColorSafe(this.loadValText, loadColor);
+    setTextSafe(this.catalValText, gameState.reactionLayers > 0 ? `✦ L${gameState.reactionLayers}` : '');
+    const catalW = gameState.reactionLayers > 0 ? this.catalValText.width + 18 * this.s : 0;
+    const loadW = this.loadValText.width + 18 * this.s;
+    this.catalValText.setPosition(this.hudRightVal, this.scale.height - 22 * this.s);
+    this.loadValText.setPosition(this.hudRightVal - catalW, this.scale.height - 22 * this.s);
+    this.sampleValText.setPosition(this.hudRightVal - catalW - loadW, this.scale.height - 22 * this.s);
+    // 电子数/模式芯片（核心右侧）
+    setTextSafe(this.electronValText, `${gameState.freeElectrons}/${gameState.maxFreeElectrons}`);
+    setTextSafe(this.modeChipText, gameState.mode === 'oxidized' ? '◆ 氧化' : '◆ 还原');
+    setColorSafe(this.modeChipText, gameState.mode === 'oxidized' ? '#FF8A4C' : '#FDE047');
+    // 过载/濒死仅以颜色告警
+    const esHud = describeElectronState(gameState.valence, gameState.maxValence, gameState.freeElectrons, gameState.maxFreeElectrons, gameState.temperature >= BALANCE.overload.tempThreshold);
+    setColorSafe(this.electronValText, esHud.overloaded ? '#FF5C7A' : esHud.overOxidized ? '#FF4D6D' : '#FFFFFF');
+    // 条右血量数值（护盾以 +N 追加）
+    setTextSafe(this.hpValText, `${Math.max(0, Math.ceil(gameState.ehp))}/${gameState.ehpMax}${gameState.shieldHp > 0 ? ` +${Math.ceil(gameState.shieldHp)}` : ''}`);
     const theme = ROOM_THEMES[gameState.currentRoomType];
     const layerStr = gameState.currentRoomType === 'finalBoss' ? '最终决战' : getLayerName(gameState.layer);
     // 小地图只用图标：层名/房间文字已删（纯图标 + 颜色语义）
 
-    // 已装备祝福
-    if (gameState.equippedBoons.length > 0) {
-      const lines = gameState.equippedBoons.map((b) => {
-        const slotLabel = { attack: 'ATK', special: 'SP', dash: 'DSH', passive: 'PSV', vitality: 'VIT', awaken: 'AWK', capacity: 'CAP', might: 'MGT', swift: 'SWF' }[b.slot] ?? b.slot;
-        const lv = b.level > 0 ? ` Lv.${b.level + 1}` : '';
-        return `${b.icon} ${slotLabel} ${b.name}${lv}`;
-      });
-      const joined = lines.join('\n');
-      if (this.boonText.text !== joined) this.boonText.setText(joined);
-      this.boonText.setAlpha(0.8);
-    } else if (this.boonText.alpha !== 0) {
-      this.boonText.setText('').setAlpha(0);
+    // 祝福图标芯片列（左缘）：菱形底 + 图标 + 等级徽标（变化时才重建）
+    {
+      const chipKey = gameState.equippedBoons.map((b) => `${b.id}:${b.level}`).join('|');
+      if (chipKey !== this.boonChipKey) {
+        this.boonChipKey = chipKey;
+        this.boonChipLayer.removeAll(true);
+        let cy = 150 * this.s;
+        const cx = 34 * this.s;
+        for (const b of gameState.equippedBoons) {
+          const def = getBoonDef(b.id);
+          const color = def ? SCHOOL_COLORS[def.school].light : '#67e8f9';
+          const bg = this.add.rectangle(cx, cy, 30 * this.s, 30 * this.s, 0x0b1e2d, 0.85)
+            .setAngle(45).setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color, 0.95);
+          const icon = this.add.text(cx, cy, b.icon, {
+            fontSize: `${Math.round(15 * this.s)}px`, color: '#FFFFFF'
+          }).setOrigin(0.5);
+          const parts = [bg, icon];
+          if (b.level > 0) {
+            parts.push(this.add.text(cx, cy + 27 * this.s, `Lv.${b.level + 1}`, {
+              fontSize: `${Math.round(10 * this.s)}px`, color: '#FDE047'
+            }).setOrigin(0.5));
+            cy += 60 * this.s;
+          } else {
+            cy += 50 * this.s;
+          }
+          this.boonChipLayer.add(parts);
+        }
+      }
     }
   }
 
@@ -504,28 +514,6 @@ export class UIScene extends Phaser.Scene {
    * 染料槽图形化（§14.5）：主 100% / 副 50% / 底 25%。
    * 有色块、槽位名、染料名与纯度百分比 —— 纯度即该槽效果的实际权重。
    */
-  private refreshDyeChips(): void {
-    gameState.dyeSlots.forEach((slot, i) => {
-      const chip = this.dyeChips[i];
-      if (!chip) return;
-      const dye = slot.dyeId ? getDye(slot.dyeId) : undefined;
-      if (dye) {
-        const hex = parseInt(dye.color.replace('#', ''), 16);
-        chip.swatch.setFillStyle(hex, 1);
-        chip.bg.setStrokeStyle(1.2, hex, 0.75);
-        setTextSafe(chip.label, dye.name);
-        setColorSafe(chip.label, dye.color);
-      } else {
-        // 空槽：明确显示"未着色"，不依赖颜色传达状态
-        chip.swatch.setFillStyle(BASE_COLORS.panel, 1);
-        chip.bg.setStrokeStyle(1.2, BASE_COLORS.panelEdge, 0.9);
-        setTextSafe(chip.label, '未着色');
-        setColorSafe(chip.label, hexString(BASE_COLORS.neutral));
-      }
-      setTextSafe(chip.purity, `${Math.round((slot.purity ?? 0) * 100)}%`);
-    });
-  }
-
   /** Boss 血条与阶段圆点。 */
   private refreshBossBar(): void {
     const gs = this.scene.get('GameScene') as unknown as GameSceneRef | null;
@@ -570,6 +558,40 @@ export class UIScene extends Phaser.Scene {
   }
 
   /** 屏幕外单位指示：敌人(红三角)/Boss(紫大三角)/出口门(主题色菱形)。 */
+  /**
+   * 开发者调试叠层：右上角显示 FPS、敌人数、文本池占用与碰撞箱状态；
+   * 并按设置切换 Arcade 物理调试绘制（碰撞箱）。仅在设置面板「开发者」页开启后生效。
+   */
+  private updateDevOverlay(): void {
+    const settings = getSettings();
+    const game = this.scene.get('GameScene') as unknown as {
+      scene: Phaser.Scenes.ScenePlugin;
+      enemies?: { view: { visible: boolean } }[];
+      combatTextPool?: unknown[];
+      boss?: { view: { visible: boolean } } | null;
+    } | null;
+    const on = settings.devOverlayEnabled;
+    this.devOverlayText.setVisible(on);
+    if (!on) return;
+    const fps = Math.round(this.game.loop.actualFps);
+    const alive = game && game.enemies ? game.enemies.filter((e) => e.view.visible).length : 0;
+    const boss = game && game.boss && game.boss.view.visible ? '在场' : '—';
+    const poolSize = game && game.combatTextPool ? game.combatTextPool.length : 0;
+    const hitbox = settings.devHitboxEnabled ? '开' : '关';
+    const active = game && game.scene.isActive() ? '战斗' : '大厅';
+    setTextSafe(this.devOverlayText, `FPS ${fps} · ${active}\n敌 ${alive} · Boss ${boss}\n文本池 ${poolSize} · 碰撞箱 ${hitbox}`);
+    // 碰撞箱：切换 Arcade 物理调试绘制
+    const physics = (game as unknown as { physics?: Phaser.Physics.Arcade.ArcadePhysics })?.physics;
+    const world = physics?.world;
+    if (world && typeof (world as unknown as { drawDebug?: boolean }).drawDebug === 'boolean') {
+      (world as unknown as { drawDebug: boolean }).drawDebug = settings.devHitboxEnabled;
+    }
+    if (world?.debugGraphic) {
+      world.debugGraphic.setVisible(settings.devHitboxEnabled);
+      if (!settings.devHitboxEnabled) world.debugGraphic.clear();
+    }
+  }
+
   private drawOffscreenIndicators(): void {
     this.indicatorGfx.clear();
     const gs = this.scene.get('GameScene') as unknown as GameSceneRef | null;
@@ -656,127 +678,6 @@ export class UIScene extends Phaser.Scene {
     this.weaponText.setAlpha(1);
     this.tweens.killTweensOf(this.weaponText);
     this.tweens.add({ targets: this.weaponText, alpha: 0, delay: 800, duration: 400 });
-  }
-
-  /** M 键切换展开（桌面）。 */
-  private toggleMinimapIfKey(): void {
-    if (Phaser.Input.Keyboard.JustDown(this.keyM)) {
-      this.minimapExpanded = !this.minimapExpanded;
-      this.minimapLastKey = '';
-    }
-  }
-
-  /** 右上小地图：紧凑态只画 当前+上一间 两枚图标；展开态画完整走过路径树。 */
-  private drawMinimap(): void {
-    this.toggleMinimapIfKey();
-    const game = this.scene.get('GameScene') as unknown as {
-      scene: Phaser.Scenes.ScenePlugin;
-      getMinimapData?: () => { nodes: MapNode[]; edges: MapEdge[]; currentId: number };
-    } | null;
-    const data = game && game.scene.isActive() && game.getMinimapData ? game.getMinimapData() : null;
-    const W = this.scale.width;
-    const s = this.s;
-    const gfx = this.minimapGfx;
-    gfx.clear();
-    if (!data || data.nodes.length === 0) return;
-
-    const typeColor = (type: string): number => {
-      const theme = ROOM_THEMES[type as keyof typeof ROOM_THEMES];
-      return theme ? theme.boundary : 0x67e8f9;
-    };
-    const drawIcon = (x: number, y: number, type: string, current: boolean, scale = 1): void => {
-      const color = typeColor(type);
-      const r = (type === 'boss' || type === 'finalBoss' ? 9 : 6.5) * s * scale;
-      gfx.lineStyle(current ? 2.5 : 1.5, color, current ? 1 : 0.75);
-      if (current) gfx.fillStyle(color, 0.35);
-      if (type === 'extraction') {
-        gfx.strokeRect(x - r, y - r * 0.7, r * 2, r * 1.4);
-        if (current) gfx.fillRect(x - r, y - r * 0.7, r * 2, r * 1.4);
-      } else {
-        // 菱形（旋转 45° 方块）：战斗/Boss/事件的统一图标语言
-        gfx.save();
-        gfx.translateCanvas(x, y);
-        gfx.rotateCanvas(Math.PI / 4);
-        gfx.strokeRect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
-        if (current) gfx.fillRect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
-        gfx.restore();
-      }
-    };
-
-    if (!this.minimapExpanded) {
-      // ---- 紧凑态：当前 + 上一间（默认尺寸）----
-      const bgW = 158 * s;
-      const bgH = 52 * s;
-      gfx.fillStyle(0x06121e, 0.78);
-      gfx.fillRoundedRect(W - bgW - 12 * s, 12 * s, bgW, bgH, 4 * s);
-      gfx.lineStyle(1, 0x67e8f9, 0.4);
-      gfx.strokeRoundedRect(W - bgW - 12 * s, 12 * s, bgW, bgH, 4 * s);
-      const cur = data.nodes.find((n) => n.id === data.currentId);
-      if (!cur) return;
-      const curIdx = data.nodes.indexOf(cur);
-      const prev = curIdx > 0 ? data.nodes[curIdx - 1] : null;
-      const cy = 12 * s + bgH / 2;
-      const xCur = W - 34 * s;
-      const xPrev = W - 120 * s;
-      if (prev) {
-        gfx.lineStyle(2, 0x67e8f9, 0.55);
-        gfx.lineBetween(xPrev + 9 * s, cy, xCur - 11 * s, cy);
-        drawIcon(xPrev, cy, prev.type, false, 0.9);
-      }
-      // 当前：脉动光环
-      const pulse = 0.5 + 0.5 * Math.sin(this.time.now * 0.006);
-      gfx.lineStyle(1.5, 0x67e8f9, 0.25 + 0.3 * pulse);
-      gfx.strokeCircle(xCur, cy, 14 * s + 3 * s * pulse);
-      drawIcon(xCur, cy, cur.type, true);
-      return;
-    }
-
-    // ---- 展开态：完整走过路径树 ----
-    const bgW = Math.min(560 * s, W - 24 * s);
-    const bgH = Math.min(380 * s, this.scale.height - 120 * s);
-    const bgX = W - bgW - 12 * s;
-    gfx.fillStyle(0x06121e, 0.9);
-    gfx.fillRoundedRect(bgX, 12 * s, bgW, bgH, 6 * s);
-    gfx.lineStyle(1.5, 0x67e8f9, 0.55);
-    gfx.strokeRoundedRect(bgX, 12 * s, bgW, bgH, 6 * s);
-
-    const pos: Map<number, NodePos> = layoutRoomTree(
-      data.nodes,
-      data.edges,
-      { colWidth: 64 * s, rowHeight: 42 * s, padX: bgX + 40 * s, padY: 12 * s + 40 * s }
-    );
-    const bounds = layoutBounds(pos);
-    // 树比面板大时整体缩放进面板
-    const contentW = Math.max(1, bounds.maxX - bounds.minX);
-    const contentH = Math.max(1, bounds.maxY - bounds.minY);
-    const fit = Math.min(1, (bgW - 70 * s) / contentW, (bgH - 70 * s) / contentH);
-
-    // 边
-    gfx.lineStyle(2, 0x67e8f9, 0.5);
-    for (const e of data.edges) {
-      const a = pos.get(e.from);
-      const b = pos.get(e.to);
-      if (!a || !b) continue;
-      const ax = bgX + (bgW - 24 * s) - (a.x - bounds.minX) * fit - 12 * s;
-      const ay = 12 * s + 40 * s + (a.y - bounds.minY) * fit;
-      const bx = bgX + (bgW - 24 * s) - (b.x - bounds.minX) * fit - 12 * s;
-      const by = 12 * s + 40 * s + (b.y - bounds.minY) * fit;
-      gfx.lineBetween(ax, ay, bx, by);
-    }
-    // 节点
-    for (const n of data.nodes) {
-      const p = pos.get(n.id);
-      if (!p) continue;
-      const x = bgX + (bgW - 24 * s) - (p.x - bounds.minX) * fit - 12 * s;
-      const y = 12 * s + 40 * s + (p.y - bounds.minY) * fit;
-      const isCurrent = n.id === data.currentId;
-      const pulse = isCurrent ? 0.5 + 0.5 * Math.sin(this.time.now * 0.006) : 0;
-      if (isCurrent) {
-        gfx.lineStyle(1.5, 0x67e8f9, 0.3 + 0.3 * pulse);
-        gfx.strokeCircle(x, y, 13 * s + 3 * s * pulse);
-      }
-      drawIcon(x, y, n.type, isCurrent, fit < 1 ? 0.9 : 1);
-    }
   }
 
   /** HUD 右下角元素的右边界（设计单位）：移动端让开按钮组，避免相互遮挡。 */

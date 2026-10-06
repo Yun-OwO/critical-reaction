@@ -1,6 +1,6 @@
 /**
  * 音效节流器（借鉴卫戍协议 audio.js 的 SfxLimiter 四重闸）：
- * - 总并发上限（maxVoices 窗口内总播放数）
+ * - 总并发上限（maxVoices 窗口内总播放数，v0.2.2 = 5）
  * - 单音源冷却（同一 key 两次播放最小间隔）
  * - 全局最小间隔（任意两声响之间）
  * - 单 key 叠音上限（同一音效窗口内最多同时几条）
@@ -22,7 +22,7 @@ export interface SfxLimiterOptions {
 }
 
 const DEFAULTS = {
-  maxVoices: 8,
+  maxVoices: 5,
   perSourceCooldownMs: 160,
   minGapMs: 45,
   maxOverlapPerKey: 2,

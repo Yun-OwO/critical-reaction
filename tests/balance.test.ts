@@ -26,8 +26,10 @@ describe('平衡配置', () => {
   });
 
   it('温度可回落：非战斗散热必须强于战斗升温', () => {
-    expect(BALANCE.temperature.coolOutOfCombat).toBeGreaterThan(BALANCE.temperature.riseBase);
-    expect(BALANCE.temperature.coolInCombat).toBeLessThan(BALANCE.temperature.coolOutOfCombat);
+    // v0.2.2：自然散热移除（温度只升不降）——降温手段收敛为还原注入/里程碑/水池
+    expect(BALANCE.temperature.coolInCombat).toBe(0);
+    expect(BALANCE.temperature.coolOutOfCombat).toBe(0);
+    expect(BALANCE.temperature.riseBase).toBeGreaterThan(0);
   });
 
   it('升温随温度加速（越热升得越快，形成撤离压力曲线）', () => {

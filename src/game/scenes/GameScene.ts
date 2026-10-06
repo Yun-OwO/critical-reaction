@@ -46,7 +46,7 @@ import { getSettings } from '../state/SettingsState';
 import { computeUiScale, currentViewportMetrics } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
-import type { MapEdge, MapNode } from '../ui/minimap';
+import { generateTerrain } from '../world/biomes';
 import { addLayers, claimMilestones, isRunawayCancel, reactionDamageMult } from '../combat/reaction';
 import { TutorialController } from '../tutorial/TutorialController';
 
@@ -330,9 +330,7 @@ export class GameScene extends Phaser.Scene {
   /** 染料房：染料罐 / 调色盘装置（每个 station 提供一个可吸收的染料 id） */
   private dyeStations: { x: number; y: number; dyeId: string; view: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text }[] = [];
   /** 染料房形态：'vat' 染缸 3 选 1（填副槽/底槽），'palette' 调色盘（主+副混色填底槽） */
-  private dyeRoomKind: 'vat' | 'palette' = 'vat';
   /** 染料房写入的目标槽位（1 副槽 / 2 底槽） */
-  private dyeRoomSlot = 1;
   /** 房间内辅助视觉对象（宝箱/商人/撤离区光效等），换房时统一销毁。 */
   private roomProps: Phaser.GameObjects.GameObject[] = [];
   /** 敌人生成预告的定时器与标记，换房时统一取消，防止旧预告在新房间落地。 */
@@ -378,6 +376,8 @@ export class GameScene extends Phaser.Scene {
   private boonSpecialElectronMult = 1;
   /** AOE 范围倍率（橙染 / 等离子体） */
   private boonAoeMult = 1;
+  /** 特殊攻击专用 AOE 倍率（v0.2.2：与 boonAoeMult 分离，避免「特殊范围+50%」误作用于普通攻击） */
+  private boonSpecialAoeMult = 1;
   /** 引爆冲刺：冲刺爆炸夺取数量 */
   private boonDetonateCount = 0;
   /** 玻璃大炮：受伤额外失去价电子数 */
@@ -427,6 +427,12 @@ export class GameScene extends Phaser.Scene {
   private gearMaxShield = 0;
   /** 临时电子夺取倍率（共振冲刺等，攻击时设置，攻击后清除） */
   private electronMult = 1;
+  /** 电子类祝福折算：每 +1 颗电子请求 → 0.35 压制概率（v0.2.2 平衡：+N 颗 ≈ +35%×N） */
+  private static readonly ELECTRON_TO_PRESSURE = 0.35;
+  /** 全局压制软上限：所有电子类祝福叠加后压制概率不超过此值（防 +N 颗线性爆炸） */
+  private static readonly MAX_PRESSURE_BONUS = 2.2;
+  /** 单次交互的电子请求上限（失控取消之外的软保险，防极端构筑瞬杀）。 */
+  private static readonly MAX_ELECTRON_REQUEST = 8;
   private playerShadowOuter!: Phaser.GameObjects.Ellipse;
   private playerShadowMid!: Phaser.GameObjects.Ellipse;
   private playerShadowInner!: Phaser.GameObjects.Ellipse;
@@ -518,11 +524,6 @@ export class GameScene extends Phaser.Scene {
     e.preventDefault();
     this.toggleStatusPanel();
   };
-
-  /** 小地图数据（只读访问：UIScene 绘制走过路径）。 */
-  public getMinimapData(): { nodes: MapNode[]; edges: MapEdge[]; currentId: number } {
-    return { nodes: this.mapNodes, edges: this.mapEdges, currentId: this.mapCurrentId };
-  }
 
   public toggleStatusPanel(): void {
     const overlay = document.getElementById('status-overlay');
@@ -702,10 +703,6 @@ export class GameScene extends Phaser.Scene {
     this.reactionMilestoneBonus = 0;
     this.claimedMilestones = 0;
     this.sfxLimiter.reset();
-    this.mapNodes = [];
-    this.mapEdges = [];
-    this.mapSeen.clear();
-    this.mapCurrentId = -1;
     this.reactionPairs = [];
     this.dashCount = 0;
     this.dashNextReadyTimer = 0;
@@ -723,6 +720,7 @@ export class GameScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.SCREEN)
       .setDepth(-3);
     this.drawGrid();
+    this.runSeed = Phaser.Math.Between(1, 1073741823);
     this.createAtmosphere();
     this.add.ellipse(this.diamondCx, this.diamondCy, 206, 104)
       .setStrokeStyle(8, 0x06b6d4, 0.12)
@@ -1089,6 +1087,10 @@ export class GameScene extends Phaser.Scene {
     this.updateBoundaryFeedback();
     this.updatePlayerAnimation(dt);
     this.enforceDiamondBounds();
+    // 护盾自然衰减（v0.2.2）：停止获取即流失，护盾不再是永久存档
+    if (gameState.shieldHp > 0) {
+      gameState.shieldHp = Math.max(0, gameState.shieldHp - delta * BALANCE.shield.decayPerSec);
+    }
     const heatRatio = Phaser.Math.Clamp(gameState.temperature / 100, 0, 1);
     const inCombat = this.countAliveHostiles() > 0;
     // 战斗外温度缓慢下降，战斗内温度上升
@@ -1097,12 +1099,7 @@ export class GameScene extends Phaser.Scene {
       // §7 本生灯形态：放热 +50%（伤害换温度压力）
       const rise = (dt * BALANCE.temperature.riseHeatScale * heatRatio + dt * BALANCE.temperature.riseBase) * (1 - heatBoon / 100) * this.weaponMods.heatMult;
       gameState.temperature = Math.min(100, gameState.temperature + rise);
-      // 战斗内也缓慢下降（散热），但低于上升速率
-      gameState.temperature = Math.max(0, gameState.temperature - dt * BALANCE.temperature.coolInCombat);
-    } else {
-      // 非战斗：缓慢降温
-      gameState.temperature = Math.max(0, gameState.temperature - dt * BALANCE.temperature.coolOutOfCombat);
-    }
+    } // 自然散热已移除（v0.2.2）：温度只升不降——还原注入/里程碑/水池是唯一降温手段
     // 高温危险脉冲：单一常驻圆做程序化脉动（此前每帧新建圆+补间，60 个/秒叠加成红色残影涂抹）
     if (heatRatio > 0.5) {
       const pulse = (Math.sin(this.time.now * 0.006) + 1) / 2;
@@ -1250,11 +1247,12 @@ export class GameScene extends Phaser.Scene {
   private claimedMilestones = 0;
   /** 音效四重节流（总并发/单源冷却/全局间隔/叠音上限） */
   private sfxLimiter = new SfxLimiter();
-  /** 小地图：走过路径的房间图（节点=进入过的房间，边=实际走过的门） */
-  private mapNodes: MapNode[] = [];
-  private mapEdges: MapEdge[] = [];
-  private mapSeen = new Set<number>();
-  private mapCurrentId = -1;
+  /** 自适应难度：本局已推进房间数 / 本房间已用秒数 / 累计房间耗时 */
+  private roomsCleared = 0;
+  private roomElapsed = 0;
+  private totalElapsed = 0;
+  /** 本局地图种子：柏林噪声群系/地形/地物的生成源（每局随机） */
+  private runSeed = 1;
   /** 反应层数全局伤害倍率 */
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
@@ -1724,8 +1722,10 @@ export class GameScene extends Phaser.Scene {
     const complementary: Record<string, string> = {
       D01: 'D05', D05: 'D01', D06: 'D02', D02: 'D06', D04: 'D07', D07: 'D04'
     };
-    // 如果主染料的互补色 = 目标弱点，伤害+30%
-    if (complementary[mainDyeId] === target.weaknessDyeId) return 0.3;
+    // 如果主染料的互补色 = 目标弱点，伤害+30% + 进化等级 ×6%（进化系统线性成长）
+    if (complementary[mainDyeId] === target.weaknessDyeId) {
+      return 0.3 + 0.06 * (gameState.dyeEvolution[mainDyeId] ?? 0);
+    }
     // 如果主染料 = 目标弱点，伤害+30%
     if (mainDyeId === target.weaknessDyeId) return 0.3;
     return 0;
@@ -1744,15 +1744,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private enterRoom(room: RoomDef): void {
-    // 小地图追踪：走过路径 = 节点（进入过的房间）+ 边（实际通过的门）
-    if (!this.mapSeen.has(room.id)) {
-      this.mapSeen.add(room.id);
-      this.mapNodes.push({ id: room.id, type: room.type, depth: room.depth, layer: room.layer });
-    }
-    if (this.roomDef && this.roomDef.id !== room.id && !this.mapEdges.some((e) => e.from === this.roomDef.id && e.to === room.id)) {
-      this.mapEdges.push({ from: this.roomDef.id, to: room.id });
-    }
-    this.mapCurrentId = room.id;
     this.roomDef = room;
     gameState.roomIndex = room.depth;
     gameState.layer = room.layer;
@@ -1798,6 +1789,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateRoom(dt: number): void {
+    // 自适应难度计时：房间内推进秒数（战斗/撤离房均计）
+    if (gameState.roomState !== 'travel') {
+      this.roomElapsed += dt;
+      this.totalElapsed += dt;
+    }
     switch (gameState.roomState) {
       case 'enter': {
         this.roomEnterTimer -= dt;
@@ -1839,10 +1835,12 @@ export class GameScene extends Phaser.Scene {
             if (this.extractionText) this.extractionText.setText(this.extractionLabel(true));
             gameState.roomState = 'choose';
           } else if (this.roomDef.type === 'finalBoss') {
-            // 最终 Boss 击败 → 通关
+            // 最终 Boss 击败 → 通关撤离开启：搜打撤的最后一环是把成果带出去
             gameState.runComplete = true;
-            this.showRoomBanner('通关 · 实验完成', '#FFD700');
+            this.showRoomBanner('通关！撤离点已开启 · 带走你的成果', '#FFD700');
             emit('run', { type: 'complete', kills: gameState.kills, samples: gameState.samples });
+            this.createExtractionZone();
+            this.extractionEnabled = true;
             gameState.roomState = 'choose';
           } else {
             this.spawnDoors();
@@ -1937,6 +1935,9 @@ export class GameScene extends Phaser.Scene {
   private onRoomCleared(): void {
     this.roomClearTimer = 0.45;
     this.roomClearRewardGiven = true;
+    // 自适应难度：通关越快 → 升温越多（快节奏推高压，慢节奏给缓冲）
+    this.roomsCleared += 1;
+    this.applyPacingHeat();
     this.playSfx('sfx-ding', 0.9);
     emit('room', { type: 'cleared', roomIndex: gameState.roomIndex, roomType: this.roomDef.type, layer: gameState.layer });
     // 祝福「自修复」：每清完房间恢复HP（数值随强化等级提升）
@@ -1961,6 +1962,21 @@ export class GameScene extends Phaser.Scene {
     } else {
       gameState.roomState = 'cleared';
     }
+  }
+
+  /**
+   * 自适应难度：按本房间清空的快慢给温度压力。
+   * 快（< par 秒）= 高压，慢（> par ×2）= 低压，形成「推进越快越危险」的节奏曲线。
+   */
+  private applyPacingHeat(): void {
+    const par = BALANCE.temperature.pacingParSeconds;
+    const ratio = Phaser.Math.Clamp(this.roomElapsed / Math.max(1, par), 0, 3);
+    // 快 → 接近 maxRise；慢 → 衰减到 minRise
+    const t = Phaser.Math.Clamp(1 - (ratio - 0.5) / 1.5, 0, 1);
+    const rise = BALANCE.temperature.pacingMinRise
+      + (BALANCE.temperature.pacingMaxRise - BALANCE.temperature.pacingMinRise) * t;
+    gameState.temperature = Phaser.Math.Clamp(gameState.temperature + rise, 0, 100);
+    this.roomElapsed = 0;
   }
 
   private showRoomBanner(text: string, color: string): void {
@@ -2217,6 +2233,7 @@ export class GameScene extends Phaser.Scene {
     this.boonChainCount = 0;
     this.boonSpecialElectronMult = 1;
     this.boonAoeMult = 1;
+    this.boonSpecialAoeMult = 1;
     this.boonDetonateCount = 0;
     this.boonGlassCannonPenalty = 0;
     this.boonIgniteDuration = 0;
@@ -2247,8 +2264,23 @@ export class GameScene extends Phaser.Scene {
 
   /** 护盾上限：基础 100 + 遗物/装备加成，再乘 §2.1 还原态的自由电子加成。 */
   private shieldCap(): number {
-    const base = 100 + this.relicMaxShield + this.gearMaxShield;
+    // v0.2.2：基础护盾上限 100 → 10（冲刺/攻击刷盾不再无敌）
+    const base = BALANCE.shield.baseMax + this.relicMaxShield + this.gearMaxShield;
     return Math.round(base * (1 + this.electronState.shieldBonusPct / 100));
+  }
+  /** 上次获得同源护盾的时间（收益递减窗口判定）。 */
+  private lastShieldGainAt = -9999;
+  /** 护盾获取：上限约束 + 1.2s 窗口内重复获取收益减半（反「一直冲刺无敌」）。 */
+  private gainShield(amount: number, source: string): void {
+    const now = this.time.now;
+    const sinceLast = now - this.lastShieldGainAt;
+    let gain = amount;
+    if (sinceLast < BALANCE.shield.refreshWindowSec * 1000) {
+      gain = Math.max(1, Math.floor(gain * 0.5));
+    }
+    this.lastShieldGainAt = now;
+    gameState.shieldHp = Math.min(this.shieldCap(), gameState.shieldHp + gain);
+    this.showFloatingText(this.player.x, this.player.y - 62, `护盾+${gain}`, '#34D399');
   }
 
   /** 冲刺冷却 = §4.3 负载倍率 × 装备(靴子)冷却缩减。 */
@@ -2265,10 +2297,14 @@ export class GameScene extends Phaser.Scene {
    */
   private electronPressureBonus(mode: 'oxidized' | 'reduced'): number {
     const w = this.weaponMods;
+    // 压制软上限：所有加成叠加后不超过 MAX_PRESSURE_BONUS（v0.2.2：+N 颗不再线性爆炸）
+    const clampPressure = (value: number): number => Math.min(GameScene.MAX_PRESSURE_BONUS, value);
+    const evolutionLevels = Object.values(gameState.dyeEvolution ?? {}).reduce((sum, v) => sum + v, 0);
     const mult = this.electronState.damageMult * this.gearDamageMult * w.damageMult
+      * (1 + evolutionLevels * 0.01)
       * this.reactionDamageMult()
       * (mode === 'oxidized' ? w.oxidizeMult : w.reduceMult);
-    return Math.max(0, mult - 1);
+    return clampPressure(Math.max(0, mult - 1));
   }
 
   /** 电子压制结算：夺取（负向 delta）或注入（正向）n 颗，≥1 保底 + 小数概率。 */
@@ -2278,7 +2314,8 @@ export class GameScene extends Phaser.Scene {
     onElectron: () => void,
     onInertify?: () => void
   ): void {
-    let pressure = this.electronPressureBonus(mode) * this.electronMult;
+    // v0.2.2：软上限——单次交互最多请求 8 颗（此前叠满增益可到 15+，直接瞬杀多层怪）
+    let pressure = Math.min(GameScene.MAX_ELECTRON_REQUEST, this.electronPressureBonus(mode) * this.electronMult);
     while (pressure >= 1) {
       pressure -= 1;
       if (mode === 'oxidized') {
@@ -2287,6 +2324,12 @@ export class GameScene extends Phaser.Scene {
         this.gainReactionLayers(1);
         onElectron();
       } else {
+        // 秒杀防护（v0.2.2）：距容量 ≤1 时注入只造成「饱和吸收」（过量试剂），
+        // 不计数、不惰化——高电子数怪不再被还原攻击单点秒杀
+        if (orbit.count >= orbit.capacity - 1) {
+          onElectron();
+          return;
+        }
         const result = captureElectron(orbit);
         onElectron();
         if (result.inertified && onInertify) {
@@ -2302,6 +2345,11 @@ export class GameScene extends Phaser.Scene {
         this.gainReactionLayers(1);
         onElectron();
       } else {
+        // 秒杀防护（同上）：饱和吸收不惰化
+        if (orbit.count >= orbit.capacity - 1) {
+          onElectron();
+          return;
+        }
         const result = captureElectron(orbit);
         onElectron();
         if (result.inertified && onInertify) onInertify();
@@ -2459,7 +2507,8 @@ export class GameScene extends Phaser.Scene {
         break;
       // ===== 氢·爆裂 (H) =====
       case 'h-atk-overload':
-        this.boonExtraElectronOxidize += sign * v;
+        // v0.2.2 平衡：+N 颗 → N × 0.35 压制概率（而非直接 +N 颗请求）
+        this.boonExtraElectronOxidize += sign * v * GameScene.ELECTRON_TO_PRESSURE;
         break;
       case 'h-atk-chain':
         this.boonChainCount += sign * v;
@@ -2475,7 +2524,7 @@ export class GameScene extends Phaser.Scene {
         this.boonDetonateCount += sign * v;
         break;
       case 'h-pass-glass':
-        this.boonExtraElectronOxidize += sign * v;
+        this.boonExtraElectronOxidize += sign * v * GameScene.ELECTRON_TO_PRESSURE;
         this.boonGlassCannonPenalty += sign;
         break;
       // ===== 氧·氧化 (O) =====
@@ -2491,7 +2540,8 @@ export class GameScene extends Phaser.Scene {
       case 'o-sp-plasma':
         this.boonPlasmaBonus += sign * v;
         // 「特殊攻击范围 +50%」——固定 +50%，与强化等级无关
-        this.boonAoeMult += sign * 0.5;
+        // 等离子体「特殊攻击范围 +50%」：只作用于特殊攻击
+        this.boonSpecialAoeMult += sign * 0.5;
         break;
       case 'o-dash-mist':
         this.boonMistDps += sign * v;
@@ -2586,7 +2636,7 @@ export class GameScene extends Phaser.Scene {
   private onSpecialHit(target: RuntimeEnemy, x: number, y: number): void {
     // 裂变冲击：以命中点为中心，对范围内敌人各夺取 n 颗电子
     if (this.boonFissionCount > 0) {
-      const radius = FISSION_RADIUS * this.boonAoeMult;
+      const radius = FISSION_RADIUS * this.boonSpecialAoeMult;
       for (const enemy of this.enemies) {
         if (!enemy.view.visible || !enemy.orbit || !enemy.enteredCombat) continue;
         const d = Phaser.Math.Distance.Between(x, y, enemy.view.x, enemy.view.y);
@@ -2714,28 +2764,11 @@ export class GameScene extends Phaser.Scene {
   private spawnDyeRoom(): void {
     const offer = this.roomDef.dye;
     if (!offer || offer.choices.length === 0) return;
-    const emptySlot = gameState.dyeSlots[1].dyeId ? (gameState.dyeSlots[2].dyeId ? null : 2) : 1;
-    const mainId = gameState.dyeSlots[0].dyeId;
-    const subId = gameState.dyeSlots[1].dyeId;
-    const mix = emptySlot === null && mainId && subId ? resolveMix(mainId, subId) : null;
-
-    // 槽位已满且有主+副 → 调色盘；否则染缸
-    const entries: { dyeId: string; hint: string }[] = [];
-    if (emptySlot === null && mix) {
-      this.dyeRoomKind = 'palette';
-      this.dyeRoomSlot = 2;
-      entries.push({ dyeId: mix.resultId, hint: '调色盘 · 主+副混色 → 底槽' });
-    } else {
-      this.dyeRoomKind = 'vat';
-      this.dyeRoomSlot = emptySlot ?? 1;
-      for (const id of offer.choices) entries.push({ dyeId: id, hint: '染缸 · 3 选 1' });
-    }
-
-    const slotName = this.dyeRoomSlot === 1 ? '副槽(50%)' : '底槽(25%)';
-    const n = entries.length;
+    // 进化系统：染色房 = 获得染料 → 喂养进化（colorist 式：染料喂养载体，属性随等级线性成长）
+    const n = offer.choices.length;
     const baseY = this.diamondCy - 420;
-    entries.forEach((entry, i) => {
-      const dye = getDye(entry.dyeId);
+    offer.choices.forEach((dyeId, i) => {
+      const dye = getDye(dyeId);
       if (!dye) return;
       const hex = parseInt(dye.color.replace('#', ''), 16);
       const pos = this.clampToPlayArea(this.diamondCx + (i - (n - 1) / 2) * 340, baseY);
@@ -2744,26 +2777,35 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: halo, scale: { from: 0.9, to: 1.3 }, alpha: { from: 0.1, to: 0.26 }, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
       const view = this.add.circle(pos.x, pos.y, 30, hex, 0.42)
         .setStrokeStyle(3, hex, 1).setBlendMode(Phaser.BlendModes.ADD).setDepth(6);
+      const lvl = gameState.dyeEvolution[dyeId] ?? 0;
       const label = this.add.text(pos.x, pos.y - 74,
-        `${dye.name} [E]\n${dye.effect}\n${entry.hint} · ${slotName}`, {
+        dye.name + ' 染料 [E]\n' + dye.effect + '\n进化 Lv.' + lvl + ' → ' + (lvl + 1), {
           color: dye.color, fontFamily: 'monospace', fontSize: '16px', align: 'center'
         }).setOrigin(0.5).setDepth(7);
-      this.dyeStations.push({ x: pos.x, y: pos.y, dyeId: entry.dyeId, view, halo, label });
+      this.dyeStations.push({ x: pos.x, y: pos.y, dyeId, view, halo, label });
     });
   }
 
-  /** 吸收染料 → 写入目标槽位（按槽位权重立即生效），随后清空所有装置。 */
+  /** 吸收染料 → 进化等级 +1（线性属性成长），随后清空所有装置。 */
   private absorbDye(dyeId: string): void {
     const dye = getDye(dyeId);
     if (!dye) return;
-    this.applyDyeToSlot(this.dyeRoomSlot, dyeId);
-    // 主槽染色同步玩家视觉色
-    if (this.dyeRoomSlot === 0) {
+    // 进化：等级 +1 → 该染料效果 +30% 基准值（colorist 式喂养）
+    gameState.dyeEvolution[dyeId] = (gameState.dyeEvolution[dyeId] ?? 0) + 1;
+    const lvl = gameState.dyeEvolution[dyeId];
+    this.applyDyeEffect(dye.effectType, dye.effectValue * 0.3);
+    if (dye.secondEffect) this.applyDyeEffect(dye.secondEffect.type, dye.secondEffect.value * 0.3);
+    // 主槽联动：同色则纯度随等级成长；首次吸收自动设为主染料
+    if (!gameState.dyeSlots[0].dyeId) {
+      gameState.dyeSlots[0].dyeId = dyeId;
+      gameState.dyeSlots[0].purity = 0.5;
+      gameState.dyeColor = dye.hex;
       this.orbitColor = gameState.dyeColor;
+    } else if (gameState.dyeSlots[0].dyeId === dyeId) {
+      gameState.dyeSlots[0].purity = Math.min(1, gameState.dyeSlots[0].purity + 0.15);
     }
-    const slotName = this.dyeRoomSlot === 0 ? '主槽' : this.dyeRoomSlot === 1 ? '副槽' : '底槽';
-    this.showFloatingText(this.player.x, this.player.y - 78, `${slotName} · ${dye.name}`, dye.color);
-    emit('dye', { name: `${dye.name}（${this.dyeRoomKind === 'palette' ? '调色盘' : '染缸'}）` });
+    this.showFloatingText(this.player.x, this.player.y - 78, dye.name + ' 进化 Lv.' + lvl, dye.color);
+    emit('dye', { name: dye.name + '（进化 Lv.' + lvl + '）' });
     this.playSfx('sfx-ding', 0.9);
     this.playTone(880, 0.14, 'sine', 0.06);
     for (const station of this.dyeStations) {
@@ -3685,7 +3727,7 @@ export class GameScene extends Phaser.Scene {
     if (this.boonCorrodeDps > 0) {
       const cx = target ? target.x : px + Math.cos(aimAngle) * 160;
       const cy = target ? target.y : py + Math.sin(aimAngle) * 160;
-      this.spawnMist(cx, cy, this.boonCorrodeDps * this.boonSpecialElectronMult, 0x5cffb1, 90 * this.boonAoeMult, 5);
+      this.spawnMist(cx, cy, this.boonCorrodeDps * this.boonSpecialElectronMult, 0x5cffb1, 90 * this.boonSpecialAoeMult, 5);
     }
     // 角色动画反馈：特殊攻击期间电子轨道进入爆发状态
     this.setPlayerOrbitState('special', 0.9);
@@ -3722,7 +3764,7 @@ export class GameScene extends Phaser.Scene {
     const px = this.player.x;
     const py = this.player.y;
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
-    const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonAoeMult * this.weaponMods.rangeMult; // 受 AOE 倍率影响
+    const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonSpecialAoeMult * this.weaponMods.rangeMult; // 特殊攻击专用 AOE
     const sweepHalf = Math.PI / 2; // 总扫角 180°
 
     // 自动朝向视野内最近的敌人（含 Boss），无目标时退回移动方向
@@ -3787,9 +3829,7 @@ export class GameScene extends Phaser.Scene {
       this.playSfx('sfx-saber-hit', 1);
       // 碳键护甲：攻击命中生成护盾，先于 EHP 吸收伤害（受护盾上限约束，避免无限回血）
       if (this.boonShieldHeal > 0) {
-        const gain = this.boonShieldHeal * 10;
-        gameState.shieldHp = Math.min(this.shieldCap(), gameState.shieldHp + gain);
-        this.showFloatingText(this.player.x, this.player.y - 62, `护盾+${gain}`, '#34D399');
+        this.gainShield(this.boonShieldHeal, 'attack');
       }
     }
 
@@ -3994,7 +4034,7 @@ export class GameScene extends Phaser.Scene {
     container.setRotation(angle);
 
     // 激光由细到粗：外 6→50px，中 4→28px，核 2→8px（smoothstep）；电子强化按颗加宽
-    const beamWidthMult = (1 + 0.12 * electronBoost) * this.boonAoeMult * this.weaponMods.aoeMult;
+    const beamWidthMult = (1 + 0.12 * electronBoost) * this.boonSpecialAoeMult * this.weaponMods.aoeMult;
     const grow = (p: number): void => {
       const e = p * p * (3 - 2 * p);
       glowOuter.setDisplaySize(beamLen, (6 + 44 * e) * beamWidthMult);
@@ -4092,7 +4132,7 @@ export class GameScene extends Phaser.Scene {
             const t = Math.max(0, Math.min(1, (rx * dx + ry * dy) / beamLen));
             const projX = this.player.x + t * dx * beamLen;
             const projY = this.player.y + t * dy * beamLen;
-            if (Phaser.Math.Distance.Between(this.boss.view.x, this.boss.view.y, projX, projY) < (60 + 30 * p) * this.boonAoeMult) {
+            if (Phaser.Math.Distance.Between(this.boss.view.x, this.boss.view.y, projX, projY) < (60 + 30 * p) * this.boonSpecialAoeMult) {
               hit = true;
               this.hitBoss(1, this.boss.view.x, this.boss.view.y);
               // 特殊强化：整段光束对 Boss 一次性额外夺取
@@ -4108,7 +4148,7 @@ export class GameScene extends Phaser.Scene {
           const t = Math.max(0, Math.min(1, (rx * dx + ry * dy) / beamLen));
           const projX = this.player.x + t * dx * beamLen;
           const projY = this.player.y + t * dy * beamLen;
-          if (Phaser.Math.Distance.Between(this.boss.view.x, this.boss.view.y, projX, projY) < (60 + 30 * p) * this.boonAoeMult) {
+          if (Phaser.Math.Distance.Between(this.boss.view.x, this.boss.view.y, projX, projY) < (60 + 30 * p) * this.boonSpecialAoeMult) {
             hit = true;
           }
         }
@@ -4143,7 +4183,7 @@ export class GameScene extends Phaser.Scene {
   private spinSlash(electronBoost = 0): void {
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
     const oxidizedBoost = electronBoost > 0 && gameState.mode === 'oxidized';
-    const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonAoeMult * this.weaponMods.rangeMult * (1 + 0.12 * electronBoost);
+    const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonSpecialAoeMult * this.weaponMods.rangeMult * (1 + 0.12 * electronBoost);
     const baseDmg = 18 * (1 + 0.25 * electronBoost) * this.electronState.damageMult * this.reactionDamageMult();
     const sweepHalf = Math.PI; // 360° 全周
     const perSlashMs = 320;
@@ -5216,11 +5256,12 @@ export class GameScene extends Phaser.Scene {
 
   /** 对敌人造成伤害；多层电子下耗尽一层则回满血并破一层，否则真正击杀。 */
   private damageEnemy(target: RuntimeEnemy, amount: number): void {
+    // v0.2.2：单次攻击最多破坏一层——溢出伤害不顺延到下一层（避免一击穿多层）
     target.hp -= amount;
     if (target.hp > 0) return;
     if (target.electronLayers > 1) {
       target.electronLayers -= 1;
-      target.hp = target.maxHp;
+      target.hp = target.maxHp; // 新层回满血，本次剩余伤害作废
       // 破层视觉：顶部圆点减一枚、环状冲击 + 浮字
       const pip = target.layerPips.pop();
       if (pip) this.tweens.add({ targets: pip, scale: 3, alpha: 0, duration: 250, onComplete: () => pip.destroy() });
@@ -5428,6 +5469,15 @@ export class GameScene extends Phaser.Scene {
         bestDepth: Math.max(1, gameState.roomIndex),
         bestLayer: gameState.layer
       });
+      // 隐藏关保护：撤离点为「隐藏撤离」时死亡，本局收益不丢失（样本/战利品入库）
+      const hiddenProtection = this.extractionDef.id === 'hidden';
+      let protectedSamples = 0;
+      if (hiddenProtection) {
+        protectedSamples = gameState.samples;
+        bankCarriedGear(gameState.carriedGear);
+        profileState.samples += protectedSamples;
+        this.showFloatingText(this.player.x, this.player.y - 40, '隐藏关保护 · 收益已入库', '#FFD700');
+      }
       // 搜打撤：死亡丢失携带装备与局内搜到的战利品（成功撤离才带得出去）
       const deathGear = loseGearOnDeath(gameState.carriedGear);
       saveProfile();
@@ -5436,17 +5486,17 @@ export class GameScene extends Phaser.Scene {
         '实验事故',
         '#FF5C7A',
         [
-          { label: lostSamples > 0 ? '丢失样本' : '样本', value: lostSamples > 0 ? `-${lostSamples}` : `${gameState.samples}` },
-          { label: '丢失装备', value: deathGear.lost.length > 0 ? `${deathGear.lost.length} 件` : '—' },
+          { label: lostSamples > 0 ? '丢失样本' : '样本', value: hiddenProtection ? `+${protectedSamples}（入库）` : lostSamples > 0 ? `-${lostSamples}` : `${gameState.samples}` },
+          { label: '丢失装备', value: hiddenProtection ? '已入库（隐藏关保护）' : deathGear.lost.length > 0 ? `${deathGear.lost.length} 件` : '—' },
           { label: '本次击杀', value: `${gameState.kills}` },
           { label: '到达深度', value: `第 ${gameState.layer + 1} 层 · 房间 ${gameState.roomIndex + 1}` },
           { label: '保留进度', value: '已记录', total: true }
         ],
         [
-          ...deathGear.lost.map((id) => ({ id, lost: true })),
-          ...gameState.carriedGear.map((id) => ({ id, lost: true }))
+          ...(hiddenProtection ? [] : deathGear.lost.map((id) => ({ id, lost: true }))),
+          ...(hiddenProtection ? [] : gameState.carriedGear.map((id) => ({ id, lost: true })))
         ],
-        '实验数据已保留 · 死亡永远带来成长'
+        hiddenProtection ? '隐藏关保护生效 · 收益已入库（稀有样本资格已失去）' : '实验数据已保留 · 死亡永远带来成长'
       );
       resetRun();
       this.resetBoonState();
@@ -5476,9 +5526,7 @@ export class GameScene extends Phaser.Scene {
     // ---- 冲刺祝福 ----
     // 碳纤冲刺：冲刺获得护盾（先于 EHP 吸收伤害）
     if (this.boonDashShield > 0) {
-      const gain = Math.round(this.boonDashShield);
-      gameState.shieldHp = Math.min(this.shieldCap(), gameState.shieldHp + gain);
-      this.showFloatingText(this.player.x, this.player.y - 62, `护盾+${gain}`, '#34D399');
+      this.gainShield(Math.round(this.boonDashShield), 'dash');
       const ring = this.add.circle(this.player.x, this.player.y, 70, 0x67e8f9, 0)
         .setStrokeStyle(3, 0x67e8f9, 0.8)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(90);
@@ -6345,8 +6393,8 @@ export class GameScene extends Phaser.Scene {
 
   private spawnReaction(x: number, y: number, element: string): void {
     const reaction = element === 'O' ? reactions[0] : reactions[5];
-    // 反应热 = |ΔH| / reactionHeatDivisor（balance.ts）：氧化命中是高频事件，单次热度必须克制
-    gameState.temperature = Phaser.Math.Clamp(gameState.temperature + Math.abs(reaction.deltaH) / BALANCE.temperature.reactionHeatDivisor, 0, 100);
+    // v0.2.2：攻击反应热已移除——温度改由「通关推进速度」驱动（自适应难度，见 applyPacingHeat）
+    // 反应只带来电子转移收益，不再直接惩罚输出频率
     emit('reaction', reaction);
     const ring = this.add.circle(x, y, 12, 0xffffff, 0)
       .setStrokeStyle(3, element === 'O' ? 0xff8a4c : 0x5cffb1, 0.95)
@@ -6504,7 +6552,13 @@ export class GameScene extends Phaser.Scene {
   private updateExtraction(delta: number): void {
     // 仅在撤离房清怪解锁后生效
     if (gameState.currentRoomType !== 'extraction' || !this.extractionEnabled || !this.extractZone || !this.extractionText) return;
-    const nearZone = Phaser.Geom.Rectangle.Contains(this.extractZone.getBounds(), this.player.x, this.player.y);
+    // 移动端交互容差：判定框外扩 90px（触屏站位精度低，实测反馈「无响应」）
+    const zoneBounds = this.extractZone.getBounds();
+    zoneBounds.x -= 90;
+    zoneBounds.y -= 90;
+    zoneBounds.width += 180;
+    zoneBounds.height += 180;
+    const nearZone = Phaser.Geom.Rectangle.Contains(zoneBounds, this.player.x, this.player.y);
     if (nearZone && (Phaser.Input.Keyboard.JustDown(this.interactKey) || mobileInput.interactQueued) && !gameState.extracting) {
       // 撤离瞬间按实时状态复核撤离点类型（升温/降温或补到试剂都会改变可用类型）
       this.refreshExtractionDef();
@@ -6537,7 +6591,9 @@ export class GameScene extends Phaser.Scene {
         const carried = gameState.samples;
         // 装备「样本收益」加成只作用于撤离的基础+温度部分（携带样本已在获取时结算过）
         const settled = Math.round((BALANCE.samples.extractionBase + heatBonus) * this.gearSampleMult);
-        const gained = settleExtractionSamples(carried + settled, this.extractionDef);
+        // 通关撤离：一次性通关奖励（不打折、不吃倍率，账目单列）
+        const clearBonus = gameState.runComplete ? BALANCE.samples.finalClearBonus : 0;
+        const gained = settleExtractionSamples(carried + settled + clearBonus, this.extractionDef);
         // 稳定化反应消耗 1 自由电子作为试剂
         if (this.extractionDef.reagentCost > 0) {
           gameState.freeElectrons = Math.max(0, gameState.freeElectrons - this.extractionDef.reagentCost);
@@ -6556,17 +6612,18 @@ export class GameScene extends Phaser.Scene {
         saveProfile();
         // 结算战报：搜打撤的核心反馈——「带出了什么」必须明明白白
         this.showRunReport(
-          `撤离成功 · ${this.extractionDef.name}`,
-          '#5CFFB1',
+          gameState.runComplete ? '撤离成功 · 通关结算' : `撤离成功 · ${this.extractionDef.name}`,
+          gameState.runComplete ? '#FFD700' : '#5CFFB1',
           [
             { label: '携带样本', value: `+${carried}` },
             { label: '完成奖励', value: `+${settled}` },
+            ...(gameState.runComplete ? [{ label: '通关奖励', value: `+${BALANCE.samples.finalClearBonus}` }] : []),
             { label: '撤离点', value: `×${this.extractionDef.rewardMult}${this.extractionDef.lossRate > 0 ? ` · 损坏 ${Math.round(this.extractionDef.lossRate * 100)}%` : ''}` },
             { label: '入库装备', value: bankedGear > 0 ? `${bankedGear} 件` : '—' },
             { label: '总入账样本', value: `+${gained}`, total: true }
           ],
           bankedIds.map((id) => ({ id, lost: false })),
-          '按 E 开始下一轮 · 装备已存入装备库'
+          gameState.runComplete ? '通关！全部实验成果已入库 · 实验记录永存' : '按 E 开始下一轮 · 装备已存入装备库'
         );
         this.playSfx('sfx-ga', 0.9);
         this.playSfx('sfx-ding', 0.9);
@@ -6677,6 +6734,41 @@ export class GameScene extends Phaser.Scene {
         ease: 'Sine.inOut'
       });
     }
+    // ---- 哈迪斯式群系/地形层：柏林噪声一次性生成（群系底色/高地亮块/洼地/液洼/地物）----
+    const terrain = generateTerrain(
+      this.runSeed, this.worldWidth, this.worldHeight,
+      this.diamondA, this.diamondB, this.diamondCx, this.diamondCy
+    );
+    const terrainGfx = this.add.graphics().setDepth(-1.5); // 网格之下、环境光之上：透过半透明网格读出地形
+    for (const t of terrain.tints) {
+      terrainGfx.fillStyle(t.color, t.alpha);
+      // isometric 菱形块，与网格晶格同构
+      terrainGfx.beginPath();
+      terrainGfx.moveTo(t.x, t.y - t.h / 2);
+      terrainGfx.lineTo(t.x + t.w / 2, t.y);
+      terrainGfx.lineTo(t.x, t.y + t.h / 2);
+      terrainGfx.lineTo(t.x - t.w / 2, t.y);
+      terrainGfx.closePath();
+      terrainGfx.fillPath();
+    }
+    for (const deco of terrain.decorations) {
+      if (deco.puddle) {
+        // 液洼：扁椭圆 + ADD 混合，化学溶剂质感
+        const puddle = this.add.ellipse(deco.x, deco.y, Phaser.Math.Between(70, 130), Phaser.Math.Between(26, 44), deco.puddleColor, 0.14)
+          .setBlendMode(Phaser.BlendModes.ADD).setDepth(-0.5);
+        this.registerCullable(puddle, 0, 200);
+        this.tweens.add({
+          targets: puddle, alpha: { from: 0.08, to: 0.2 }, scaleX: { from: 0.94, to: 1.08 },
+          duration: Phaser.Math.Between(2400, 4200), yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+      } else {
+        const prop = this.add.image(deco.x, deco.y, deco.texture)
+          .setAlpha(0.92).setOrigin(0.5, 1).setDepth(0.15)
+          .setRotation(Phaser.Math.FloatBetween(-0.12, 0.12));
+        this.registerCullable(prop, 0, 200);
+      }
+    }
+
     // 战斗布景：Chemic 花/石/蘑菇/炼金台密集贴地（原尺寸、贴着地面、跟随相机）
     // 约束：落在菱形地图内（|dx|/A+|dy|/B<=0.92）、彼此间距 >= 120、不进中心出生区；密度相对原 34 -50%
     const chemicKeys = ['tex-flower', 'tex-rock', 'tex-mushroom', 'tex-anthemy'];
