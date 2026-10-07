@@ -748,6 +748,10 @@ export class GameScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(99);
     this.physics.add.existing(this.player);
     this.playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    // 2.5D 脚底碰撞盒：玩家视觉 92x92，物理体只取脚底区域（56x28，位于图像下部），
+    // 与棱柱底座碰撞时符合直觉（身体可被树冠/上部遮挡，脚底才是碰撞面）
+    this.playerBody.setSize(56, 28);
+    this.playerBody.setOffset((92 - 56) / 2, 92 - 28);
     this.playerBody.setCollideWorldBounds(true);
     this.playerBody.setDrag(BALANCE.player.stopDrag, BALANCE.player.stopDrag);
     // 基础最大速度 +15%，叠加移速加成（染料/祝福/遗物/装备）
@@ -6796,9 +6800,10 @@ export class GameScene extends Phaser.Scene {
     const obstacles = this.physics.add.staticGroup();
     for (const blk of terrain.blocks) {
       if (!blk.collidable) continue;
-      const body = obstacles.create(blk.x, blk.y + 6, 'biome-tloor');
+      const body = obstacles.create(blk.x, blk.y + blk.h / 2, 'biome-tloor');
       body.setVisible(false);
-      body.setDisplaySize(76, 40);
+      // 底座碰撞盒 = 棱柱底边区域（略窄于视觉，留出贴边走位）
+      body.setDisplaySize(72, 30);
       body.refreshBody();
     }
     // 守卫：createAtmosphere 被 LobbyScene 复用（其无 playerBody），
@@ -6819,7 +6824,7 @@ export class GameScene extends Phaser.Scene {
         });
       } else {
         const prop = this.add.image(deco.x, deco.y, deco.texture)
-          .setAlpha(0.92).setOrigin(0.5, 1).setDepth(0.15)
+          .setAlpha(0.95).setOrigin(0.5, 1).setDepth(deco.y * 0.001 + 0.3)
           .setRotation(Phaser.Math.FloatBetween(-0.12, 0.12));
         this.registerCullable(prop, 0, 200);
       }
