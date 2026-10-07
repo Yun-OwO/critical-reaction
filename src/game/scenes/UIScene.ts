@@ -569,27 +569,32 @@ export class UIScene extends Phaser.Scene {
       enemies?: { view: { visible: boolean } }[];
       combatTextPool?: unknown[];
       boss?: { view: { visible: boolean } } | null;
+      runSeed?: number;
     } | null;
     const on = settings.devOverlayEnabled;
     this.devOverlayText.setVisible(on);
+    // 碰撞箱：每帧同步 Arcade 调试开关（World 每帧 clear+重绘 debugGraphic，
+    // 单次 setVisible 会被覆盖，必须持续维持）
+    const physics = (game as unknown as { physics?: Phaser.Physics.Arcade.ArcadePhysics })?.physics;
+    const world = physics?.world;
+    if (world) {
+      world.drawDebug = on && settings.devHitboxEnabled;
+      if (world.debugGraphic) {
+        world.debugGraphic.setVisible(on && settings.devHitboxEnabled);
+        if (!on || !settings.devHitboxEnabled) world.debugGraphic.clear();
+      }
+    }
     if (!on) return;
-    const fps = Math.round(this.game.loop.actualFps);
+    // chemic 式帧率：引擎平滑值 + 本帧瞬时值
+    const afps = +this.game.loop.actualFps.toFixed(1);
+    const ufps = +(1000 / Math.max(1, this.game.loop.delta)).toFixed(1);
     const alive = game && game.enemies ? game.enemies.filter((e) => e.view.visible).length : 0;
     const boss = game && game.boss && game.boss.view.visible ? '在场' : '—';
     const poolSize = game && game.combatTextPool ? game.combatTextPool.length : 0;
-    const hitbox = settings.devHitboxEnabled ? '开' : '关';
     const active = game && game.scene.isActive() ? '战斗' : '大厅';
-    setTextSafe(this.devOverlayText, `FPS ${fps} · ${active}\n敌 ${alive} · Boss ${boss}\n文本池 ${poolSize} · 碰撞箱 ${hitbox}`);
-    // 碰撞箱：切换 Arcade 物理调试绘制
-    const physics = (game as unknown as { physics?: Phaser.Physics.Arcade.ArcadePhysics })?.physics;
-    const world = physics?.world;
-    if (world && typeof (world as unknown as { drawDebug?: boolean }).drawDebug === 'boolean') {
-      (world as unknown as { drawDebug: boolean }).drawDebug = settings.devHitboxEnabled;
-    }
-    if (world?.debugGraphic) {
-      world.debugGraphic.setVisible(settings.devHitboxEnabled);
-      if (!settings.devHitboxEnabled) world.debugGraphic.clear();
-    }
+    const hitbox = settings.devHitboxEnabled ? '开' : '关';
+    const seed = game && game.runSeed !== undefined ? game.runSeed : '—';
+    setTextSafe(this.devOverlayText, `FPS ${afps}/${ufps} · ${active}\n敌 ${alive} · Boss ${boss}\n文本池 ${poolSize} · 碰撞箱 ${hitbox}\n种子 ${seed}`);
   }
 
   private drawOffscreenIndicators(): void {
