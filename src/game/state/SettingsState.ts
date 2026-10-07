@@ -122,6 +122,8 @@ const SHORT_KEY_MAP: Record<string, keyof GameSettings> = {
   effects: 'effectsEnabled',
   'ambient-sound': 'ambientSoundEnabled',
   'dash-sound': 'dashSoundEnabled',
+  'dev-overlay': 'devOverlayEnabled',
+  'dev-hitbox': 'devHitboxEnabled',
 };
 
 export function toggleSetting(key: string): void {
