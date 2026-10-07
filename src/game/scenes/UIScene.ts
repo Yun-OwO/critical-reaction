@@ -578,10 +578,17 @@ export class UIScene extends Phaser.Scene {
     const physics = (game as unknown as { physics?: Phaser.Physics.Arcade.ArcadePhysics })?.physics;
     const world = physics?.world;
     if (world) {
-      world.drawDebug = on && settings.devHitboxEnabled;
-      if (world.debugGraphic) {
-        world.debugGraphic.setVisible(on && settings.devHitboxEnabled);
-        if (!on || !settings.devHitboxEnabled) world.debugGraphic.clear();
+      const wantHitbox = on && settings.devHitboxEnabled;
+      // debugGraphic 默认为 undefined（Arcade World 只在 config.debug 或
+      // createDebugGraphic 后创建），直接 clear 会抛 'reading clear' —— 必须按需创建
+      if (wantHitbox && !world.debugGraphic) {
+        world.createDebugGraphic();
+      }
+      world.drawDebug = wantHitbox;
+      const graphic = world.debugGraphic;
+      if (graphic) {
+        graphic.setVisible(wantHitbox);
+        if (!wantHitbox) graphic.clear();
       }
     }
     if (!on) return;
