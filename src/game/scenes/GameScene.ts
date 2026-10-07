@@ -6801,7 +6801,11 @@ export class GameScene extends Phaser.Scene {
       body.setDisplaySize(76, 40);
       body.refreshBody();
     }
-    this.physics.add.collider(this.playerBody, obstacles);
+    // 守卫：createAtmosphere 被 LobbyScene 复用（其无 playerBody），
+    // 传 undefined 给 collider 会导致每帧 collideObjects 抛 'reading isParent'
+    if (this.playerBody) {
+      this.physics.add.collider(this.playerBody, obstacles);
+    }
 
     for (const deco of terrain.decorations) {
       if (deco.puddle) {
