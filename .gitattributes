@@ -1,0 +1,24 @@
+# 统一文本文件行尾为 LF，避免跨平台（Windows/Linux 混用）时
+# 整文件被重写，把真实改动淹没在数千行行尾噪音里。
+* text=auto eol=lf
+
+# Windows 批处理必须保持 CRLF，否则 cmd.exe 解析会出错
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制资源，禁止任何行尾/编码转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.svg text eol=lf
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.glsl text eol=lf
+*.apk binary
+*.jar binary
