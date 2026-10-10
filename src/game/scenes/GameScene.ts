@@ -254,6 +254,12 @@ export class GameScene extends Phaser.Scene {
   private boss: RuntimeBoss | null = null;
   private player!: Phaser.GameObjects.Image;
   private playerBody!: Phaser.Physics.Arcade.Body;
+  /**
+   * 地形棱柱障碍组。createAtmosphere() 在 create() 里早于玩家物理体执行，
+   * 彼时 playerBody 尚未赋值，碰撞器无法在生成时注册——先存这里，
+   * 等玩家物理体就绪后再由 setupTerrainCollision() 补挂。
+   */
+  private terrainObstacles: Phaser.Physics.Arcade.StaticGroup | null = null;
   private readonly playerBaseScale = 92 / 128;
   private attackRecoil = 0;
   private boundaryGraphics!: Phaser.GameObjects.Graphics;
@@ -754,6 +760,9 @@ export class GameScene extends Phaser.Scene {
     this.playerBody.setOffset((92 - 56) / 2, 92 - 28);
     this.playerBody.setCollideWorldBounds(true);
     this.playerBody.setDrag(BALANCE.player.stopDrag, BALANCE.player.stopDrag);
+    // 地形棱柱碰撞：障碍组在 createAtmosphere() 里已生成，但当时玩家物理体还不存在，
+    // 必须等此处 playerBody 就绪后再注册，否则玩家可穿过棱柱
+    this.setupTerrainCollision();
     // 基础最大速度 +15%，叠加移速加成（染料/祝福/遗物/装备）
     const baseMaxVel = Math.round(506 * (1 + (this.boonMoveSpeedBonus + this.relicMoveSpeedBonus + this.gearMoveSpeedPct) / 100));
     this.playerBody.setMaxVelocity(baseMaxVel, baseMaxVel);
@@ -6806,11 +6815,10 @@ export class GameScene extends Phaser.Scene {
       body.setDisplaySize(72, 30);
       body.refreshBody();
     }
-    // 守卫：createAtmosphere 被 LobbyScene 复用（其无 playerBody），
-    // 传 undefined 给 collider 会导致每帧 collideObjects 抛 'reading isParent'
-    if (this.playerBody) {
-      this.physics.add.collider(this.playerBody, obstacles);
-    }
+    // 碰撞器**不在这里注册**：本方法在 GameScene.create() 里先于玩家物理体执行
+    // （此处 playerBody 仍为 undefined，原 if 守卫恒假 → 碰撞从未生效，玩家能直接穿过棱柱）。
+    // 这里只保存障碍组，等玩家物理体就绪后由 setupTerrainCollision() 统一注册。
+    this.terrainObstacles = obstacles;
 
     for (const deco of terrain.decorations) {
       if (deco.puddle) {
@@ -6941,5 +6949,16 @@ export class GameScene extends Phaser.Scene {
         });
       }
     }
+  }
+
+  /**
+   * 注册玩家与地形棱柱的碰撞。必须在玩家物理体创建之后调用——
+   * createAtmosphere 在 create() 里早于 playerBody 赋值执行，无法在其中注册
+   * （原 `if (this.playerBody)` 守卫恒假，碰撞从未生效，玩家可穿过棱柱）。
+   * 仅 GameScene 生成 obstacles；LobbyScene 的 createAtmosphere 无地形障碍。
+   */
+  private setupTerrainCollision(): void {
+    if (!this.playerBody || !this.terrainObstacles) return;
+    this.physics.add.collider(this.playerBody, this.terrainObstacles);
   }
 }
