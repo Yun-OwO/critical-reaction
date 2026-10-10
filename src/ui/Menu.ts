@@ -124,6 +124,34 @@ function toggleFullscreen(): void {
   }
 }
 
+/**
+ * 全屏后强制屏幕转横屏。
+ *
+ * 为什么必须显式锁：浏览器里 requestFullscreen() 只是把页面铺满视口，**不会旋转屏幕**。
+ * 竖屏手机全屏后视口仍是竖屏，而 getResolutionForAspectRatio('auto') 忠实镜像视口方向，
+ * 于是算出竖屏内部分辨率（如 887×1920）——这正是"全屏后仍是竖屏比例"的直接原因。
+ * 延迟重算本身没问题，它只是忠实地跟随了一个竖屏视口；缺的是把视口转成横屏这一步。
+ *
+ * APK 侧不受影响：AndroidManifest 已设 android:screenOrientation="userLandscape"，
+ * 由系统层强制横屏，Web 层这个锁在 Capacitor 里也不会触发（无 document.fullscreenElement）。
+ *
+ * 约束与容错：screen.orientation.lock() 只在全屏态下可用，且 iOS Safari 完全未实现
+ * （返回的 Promise 会 reject）。故一律吞掉失败——锁不上就退回"跟随设备方向"，非致命。
+ */
+function lockLandscapeOrientation(): void {
+  // TS 的 lib.dom 未声明 lock/unlock（非 W3C 标准成员），但 Chrome/Edge/Android WebView
+  // 已实现多年，故在此做局部类型断言，不污染全局类型
+  const orientation = screen.orientation as ScreenOrientation & {
+    lock?: (orientation: string) => Promise<void>;
+    unlock?: () => void;
+  };
+  if (!orientation?.lock) return;
+  try {
+    // 用 'landscape' 而非 'landscape-primary'：跟随用户当前握持侧，不强制某一方向
+    void orientation.lock('landscape').catch(() => { /* 不支持则退回跟随设备 */ });
+  } catch { /* 同步抛错同样吞掉 */ }
+}
+
 /* ── 染色工作台 ─────────────────────────────────── */
 
 let dyePrimaryIdx = 0;
@@ -612,6 +640,10 @@ export function mountMenuUi(game: Phaser.Game): void {
   // 因此全屏切换后在 150ms / 500ms / 1200ms 三个时点各重算一次——
   // applyAdaptiveResolution 内部对"分辨率未变化"是空操作，重复调用安全。
   const onFullscreenChange = (): void => {
+    // 全屏后必须先锁横屏：requestFullscreen() 只铺满视口、不旋转屏幕，
+    // 竖屏进全屏仍是竖屏视口 → auto 比例镜像出竖屏内部分辨率（"全屏后仍是竖屏比例"）。
+    // 锁定是异步的，屏幕转过来会再发 resize/orientationchange，下面的重算已覆盖那些时机。
+    if (document.fullscreenElement) lockLandscapeOrientation();
     scheduleAdaptiveResolution();
     window.setTimeout(() => applyAdaptiveResolution(game), 500);
     window.setTimeout(() => applyAdaptiveResolution(game), 1200);
