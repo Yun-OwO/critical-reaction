@@ -6766,40 +6766,47 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ---- 体积化地形（v0.2.3）：高地格绘制等距棱柱（顶面菱形 + 左右侧面挤出厚度）----
-    // 三阶色板：顶面 = accent 原色，左面 darken(28)，右面 darken(45)；厚度 12/20/28 三档
+    // 三阶色板：顶面 = accent 原色，左面 darken(28)，右面 darken(45)；厚度 20/28 两档立体、12px 平铺
+    // 12px 是"可走上的浅台"——能走上去的就不该挤出侧壁：侧壁暗示会被挡住，实际却无碰撞，
+    // 视觉与通行规则相反。故矮台只画平贴地面的顶面菱形，只有 20/28 的高地才立起来。
     const isoBlock = (gx: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, height: number, top: number, rim: number): void => {
-      const sideL = Phaser.Display.Color.IntegerToColor(top).darken(28).color;
-      const sideR = Phaser.Display.Color.IntegerToColor(top).darken(45).color;
-      // 左侧面（朝左下的可见面）
-      gx.fillStyle(sideL, 1);
-      gx.beginPath();
-      gx.moveTo(x - w / 2, y);
-      gx.lineTo(x, y + h / 2);
-      gx.lineTo(x, y + h / 2 + height);
-      gx.lineTo(x - w / 2, y + height);
-      gx.closePath();
-      gx.fillPath();
-      // 右侧面（朝右下的可见面）
-      gx.fillStyle(sideR, 1);
-      gx.beginPath();
-      gx.moveTo(x + w / 2, y);
-      gx.lineTo(x, y + h / 2);
-      gx.lineTo(x, y + h / 2 + height);
-      gx.lineTo(x + w / 2, y + height);
-      gx.closePath();
-      gx.fillPath();
-      // 顶面（上移 height）
+      // 顶面菱形：立起的块上移 height，平铺的浅台贴地（height 归零）
+      const lift = height <= 12 ? 0 : height;
       gx.fillStyle(top, 1);
       gx.beginPath();
-      gx.moveTo(x, y - h / 2 - height);
-      gx.lineTo(x + w / 2, y - height);
-      gx.lineTo(x, y + h / 2 - height);
-      gx.lineTo(x - w / 2, y - height);
+      gx.moveTo(x, y - h / 2 - lift);
+      gx.lineTo(x + w / 2, y - lift);
+      gx.lineTo(x, y + h / 2 - lift);
+      gx.lineTo(x - w / 2, y - lift);
       gx.closePath();
       gx.fillPath();
       // 顶面边缘线（群系强调色，勾勒体积轮廓）
       gx.lineStyle(1.2, rim, 0.5);
       gx.strokePath();
+      if (lift === 0) return; // 浅台到此为止，无侧面
+      const sideL = Phaser.Display.Color.IntegerToColor(top).darken(28).color;
+      const sideR = Phaser.Display.Color.IntegerToColor(top).darken(45).color;
+      // 侧面：从顶面（上移 height）的两条前棱，垂直落到地面菱形——上下严丝合缝。
+      // 原实现把地面菱形的前棱再往下挤出 height，而顶面在上方 height 处，
+      // 两者之间空出 height 像素，渲染成"顶面悬浮在侧壁上方"的缝隙。
+      // 左侧面（朝左下的可见面）
+      gx.fillStyle(sideL, 1);
+      gx.beginPath();
+      gx.moveTo(x - w / 2, y - lift);
+      gx.lineTo(x, y + h / 2 - lift);
+      gx.lineTo(x, y + h / 2);
+      gx.lineTo(x - w / 2, y);
+      gx.closePath();
+      gx.fillPath();
+      // 右侧面（朝右下的可见面）
+      gx.fillStyle(sideR, 1);
+      gx.beginPath();
+      gx.moveTo(x + w / 2, y - lift);
+      gx.lineTo(x, y + h / 2 - lift);
+      gx.lineTo(x, y + h / 2);
+      gx.lineTo(x + w / 2, y);
+      gx.closePath();
+      gx.fillPath();
     };
     for (const blk of terrain.blocks) {
       isoBlock(terrainGfx, blk.x, blk.y, blk.w, blk.h, blk.height, blk.top, blk.rim);

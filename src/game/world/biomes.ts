@@ -100,25 +100,25 @@ export interface Biome {
 /**
  * 固定 5 种化学群系（组合由噪声决定，种类不随机——保证视觉语言可控）。
  * 地形/地物映射（v0.2.3）：
- *  - terrainTiles：群系专属地面瓦片（iso 菱形 2:1 投影，tloor 为中性石板，trap* 为何忆卫设备残骸）
- *  - propTiles：   群系专属大型地物（斜投影 + 深度排序，Y 越大越靠前）
+ *  - terrainTiles：群系专属地面瓦片（iso 菱形 2:1 投影，tloor 为中性石板，tbc 为群系色地表）
+ *  - propTiles：   群系专属大型地物（斜投影 + 深度排序，Y 越大越靠前；chemic 玻璃器皿/植被）
  *  - decorKeys：   小型点缀（chemic 花/石/蘑菇，仍在用）
  */
 export const BIOMES: readonly Biome[] = [
   {
     id: 'crystalline', name: '结晶带', tint: 0x1b3a5c, tintAlpha: 0.16, accent: 0x67e8f9, puddleColor: null,
     decorKeys: ['tex-rock', 'tex-mushroom'], density: 0.5,
-    terrainTiles: ['biome-tloor', 'biome-tbc'], propTiles: ['biome-trap-40'], terrainCoverage: 0.55
+    terrainTiles: ['biome-tloor', 'biome-tbc'], propTiles: ['tex-flask'], terrainCoverage: 0.55
   },
   {
     id: 'corrosive', name: '腐蚀沼', tint: 0x14361f, tintAlpha: 0.18, accent: 0x5cffb1, puddleColor: 0x5cffb1,
     decorKeys: ['tex-flower', 'tex-mushroom'], density: 0.6,
-    terrainTiles: ['biome-tloor'], propTiles: ['biome-trap-41', 'tex-mushroom'], terrainCoverage: 0.45
+    terrainTiles: ['biome-tloor'], propTiles: ['tex-beaker', 'tex-mushroom'], terrainCoverage: 0.45
   },
   {
     id: 'catalytic', name: '催化热土', tint: 0x3a1e10, tintAlpha: 0.2, accent: 0xff8a4c, puddleColor: 0xff8a4c,
     decorKeys: ['tex-thick', 'tex-rock'], density: 0.45,
-    terrainTiles: ['biome-tbc', 'biome-tloor'], propTiles: ['biome-trap-42', 'tex-thick'], terrainCoverage: 0.6
+    terrainTiles: ['biome-tbc', 'biome-tloor'], propTiles: ['tex-beaker', 'tex-thick'], terrainCoverage: 0.6
   },
   {
     id: 'inert', name: '惰性灰域', tint: 0x1c2126, tintAlpha: 0.14, accent: 0x64748b, puddleColor: null,
@@ -128,7 +128,7 @@ export const BIOMES: readonly Biome[] = [
   {
     id: 'solvent', name: '溶剂海', tint: 0x122a4a, tintAlpha: 0.16, accent: 0x38bdf8, puddleColor: 0x38bdf8,
     decorKeys: ['tex-flower', 'tex-anthemy'], density: 0.55,
-    terrainTiles: ['biome-tbc'], propTiles: ['biome-trap-43', 'tex-anthemy'], terrainCoverage: 0.5
+    terrainTiles: ['biome-tbc'], propTiles: ['tex-flask', 'tex-anthemy'], terrainCoverage: 0.5
   }
 ];
 
