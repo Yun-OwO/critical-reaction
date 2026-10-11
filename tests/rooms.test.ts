@@ -103,13 +103,15 @@ describe('rooms 房间链生成', () => {
     expect(doors1.map((d) => d.depth)).toEqual(doors2.map((d) => d.depth));
   });
 
-  it('createRoom 宝藏房有奖励、商店房有报价', () => {
+  it('createRoom 宝藏房有奖励、商店房不带单件报价（货架改由 rollShop 生成）', () => {
     const treasure = createRoom('treasure', 2, 0, () => 0.1);
     expect(treasure.reward).not.toBeNull();
     expect(treasure.waves).toHaveLength(0);
+    // 商店商品不再挂在 RoomDef 上：它是按层数 + 保底稀有生成的 4 格货架，
+    // 定价规则（5 的倍数）与层数门槛都在 data/shop.ts 与 BALANCE.economy2 里。
     const shop = createRoom('shop', 2, 0, () => 0.1);
-    expect(shop.shop).not.toBeNull();
-    expect(shop.shop!.cost).toBeGreaterThan(0);
+    expect((shop as unknown as Record<string, unknown>).shop).toBeUndefined();
+    expect(shop.waves).toHaveLength(0);
   });
 
   it('ROOM_THEMES 覆盖所有房间类型', () => {

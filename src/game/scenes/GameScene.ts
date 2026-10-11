@@ -5,9 +5,31 @@ import { getWeapon, resolveWeaponModifiers } from '../data/weapons';
 import { getWeaponForm, getWeaponLevel } from '../state/ProfileState';
 import { getGear, pickGearDrop, GEAR_RARITY_META } from '../data/gear';
 import { COMBAT_POOL, EXTRACTION_DEFS, ROOM_THEMES, buildComposition, generateRoomDoors, generateStartRoom, makeCombatWaves, getLayerName, getLayerProgress, getLayerHpScale, getLayerSpeedScale, createFinalBossRoom, pickExtraction, settleExtractionSamples } from '../data/rooms';
-import type { EnemyKind, ExtractionDef, InstrumentOffer, RoomDef, RoomEnemyDef, RoomReward, RoomType, ShopOffer } from '../data/rooms';
+import type { EnemyKind, ExtractionDef, InstrumentOffer, RoomDef, RoomEnemyDef, RoomReward, RoomType } from '../data/rooms';
 import type { EventContext } from '../data/events';
-import { couponsForChest, couponsForRoom, settleCoupons } from '../data/shop';
+import { canSpend, couponsForChest, couponsForRoom, rollShop, settleCoupons, spendCoupons, type ShopSlot } from '../data/shop';
+
+/**
+ * 诡商摊位（局内商店）。
+ *
+ * 从「一个样本价的单件商品」升级为「4 格货架、用催化券定价」：
+ * - 用券而不是用样本，是因为样本是**要带出去**的资源（撤离倍率/损坏率都作用在它上面），
+ *   在局内花掉它等于主动放弃撤离收益；而券除了兑现和投资之外没有别的出口。
+ *   两者构成一个清晰的抉择：**带出去，还是现在换成战力**。
+ * - 货架按层数推进内容，且每层保底稀有，详见 data/shop.ts 的注释。
+ */
+interface MerchantStall {
+  view: Phaser.GameObjects.Rectangle;
+  title: Phaser.GameObjects.Text;
+  stands: MerchantStand[];
+}
+
+interface MerchantStand {
+  slot: ShopSlot;
+  view: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  bought: boolean;
+}
 import { getBossConfigForLayer } from '../data/bosses';
 import { BALANCE } from '../data/balance';
 import { ATTACK_BUFFER_SEC, DASH_BUFFER_SEC, FEEDBACK, ShakeGovernor, hitTierFor, pitchJitter, squashCurve, stretchCurve } from '../visual/feedback';
@@ -350,7 +372,7 @@ export class GameScene extends Phaser.Scene {
   private extractionEnabled = false;
   private extractionPressureTimer = 0;
   private chest: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; reward: RoomReward; gearDrop: string | null; opened: boolean } | null = null;
-  private merchant: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; offer: ShopOffer; bought: boolean } | null = null;
+  private merchant: MerchantStall | null = null;
   private instrument: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; offer: InstrumentOffer; used: boolean } | null = null;
   /** 染料房：染料罐 / 调色盘装置（每个 station 提供一个可吸收的染料 id） */
   private dyeStations: { x: number; y: number; dyeId: string; view: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text }[] = [];
@@ -2878,12 +2900,18 @@ export class GameScene extends Phaser.Scene {
         return;
       }
     }
-    if (this.merchant && !this.merchant.bought) {
-      const near = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.merchant.view.x, this.merchant.view.y) < 150;
-      this.merchant.label.setAlpha(near ? 1 : 0.6);
-      if (near && interactPressed) {
-        resetQueuedActions();
-        this.buyFromMerchant();
+    if (this.merchant) {
+      // 货架：4 个独立可交互展台，走到跟前才亮起来，按 E 买这一格
+      this.merchant.title.setText(`⚗ 诡商 · 持有 ${gameState.coupons} 券`);
+      for (const stand of this.merchant.stands) {
+        if (stand.bought) continue;
+        const near = Phaser.Math.Distance.Between(this.player.x, this.player.y, stand.view.x, stand.view.y) < 130;
+        stand.label.setAlpha(near ? 1 : 0.45);
+        if (near && interactPressed) {
+          resetQueuedActions();
+          this.buyShopSlot(stand);
+          return;
+        }
       }
     }
     if (this.instrument && !this.instrument.used) {
@@ -3297,17 +3325,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** 商店报价文案：必须让玩家在按 E 之前就知道买什么、花多少。 */
-  private shopOfferText(offer: ShopOffer): string {
-    const what = offer.item === 'electronMax'
-      ? `自由电子上限 +${offer.amount}`
-      : offer.item === 'heal'
-        ? '电子恢复'
-        : offer.item === 'temperature'
-          ? `降温 ${offer.amount}°`
-          : `背包扩容 +${offer.amount}`;
-    return `🧪 催化剂台\n${what} · ${offer.cost} 样本 [E]`;
-  }
 
   private spawnMerchant(): void {
     const pos = this.clampToPlayArea(this.diamondCx - 500, this.diamondCy - 300);
@@ -3327,49 +3344,103 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(7);
     this.roomProps.push(icon);
     this.tweens.add({ targets: icon, y: icon.y - 8, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-    const offer = this.roomDef.shop ?? { cost: 5, item: 'electronMax' as const, amount: 1 };
-    const label = this.add.text(pos.x, pos.y - 66, this.shopOfferText(offer), {
-      color: '#D8B4FE', fontFamily: 'monospace', fontSize: '17px', align: 'center'
+    const title = this.add.text(pos.x, pos.y - 68, `⚗ 诡商 · 持有 ${gameState.coupons} 券`, {
+      color: '#D8B4FE', fontFamily: 'monospace', fontSize: '16px', align: 'center'
     }).setOrigin(0.5).setDepth(7);
-    this.roomProps.push(label);
-    this.merchant = { view, label, offer, bought: false };
+    this.roomProps.push(title);
+
+    // 货架按层数推进内容，并每层保底稀有（对标 Hades 的骷髅房提稀有）
+    const slots = rollShop(gameState.layer, this.eventContext(), Math.random);
+    const stands: MerchantStand[] = slots.map((slot, i) => {
+      // 货架横排在摊位下方，避免 4 个可交互物互相压住
+      const dx = (i - (slots.length - 1) / 2) * 132;
+      const sp = this.clampToPlayArea(pos.x + dx, pos.y + 150);
+      const rarityHex = slot.rarity === 'epic' ? 0xffd700 : slot.rarity === 'rare' ? 0xd8b4fe : 0xa78bfa;
+      const rarityColor = `#${rarityHex.toString(16).padStart(6, '0')}`;
+      const sview = this.add.rectangle(sp.x, sp.y, 104, 74, 0x1a1030, 0.5)
+        .setStrokeStyle(2, rarityHex, 0.9).setDepth(6);
+      const slabel = this.add.text(sp.x, sp.y - 52, this.shopSlotText(slot), {
+        color: rarityColor, fontFamily: 'monospace', fontSize: '14px', align: 'center'
+      }).setOrigin(0.5).setDepth(7);
+      this.roomProps.push(sview, slabel);
+      return { slot, view: sview, label: slabel, bought: false };
+    });
+
+    this.merchant = { view, title, stands };
   }
 
-  private buyFromMerchant(): void {
-    if (!this.merchant || this.merchant.bought) return;
-    const offer = this.merchant.offer;
-    if (gameState.samples < offer.cost) {
-      this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80, '样本不足', '#FF5C7A');
+  /** 货架文案：价格必须一眼可见且能心算（定价全是 5 的倍数，见 data/shop.ts）。 */
+  private shopSlotText(slot: ShopSlot): string {
+    return `${slot.name}\n${slot.price} 券\n[E] 购买`;
+  }
+
+  /** 买下货架上的一件商品：扣券 → 应用效果 → 标记已购。 */
+  private buyShopSlot(stand: MerchantStand): void {
+    if (stand.bought) return;
+    const { slot } = stand;
+    if (!canSpend(gameState.coupons, slot.price)) {
+      this.showFloatingText(stand.view.x, stand.view.y - 60, `券不足（差 ${slot.price - gameState.coupons}）`, '#FF5C7A');
       this.playTone(160, 0.1, 'square', 0.08);
       return;
     }
-    gameState.samples -= offer.cost;
-    this.merchant.bought = true;
-    this.merchant.label.setText('已购买');
-    if (offer.item === 'electronMax') {
-      // 基础上限 3，催化剂台最多扩容两次 → 5
-      gameState.maxFreeElectrons = Math.min(6, gameState.maxFreeElectrons + offer.amount);
-      gainFreeElectrons(offer.amount);
-      this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80, `自由电子上限 +${offer.amount}`, '#67E8F9');
-    } else if (offer.item === 'heal') {
-      gameState.ehp = gameState.ehpMax;
-      if (gameState.valence < gameState.maxValence) {
-        gameState.valence = gameState.maxValence;
-        gameState.ehp = gameState.ehpMax;
-      }
-      this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80, '电子恢复', '#5CFFB1');
-    } else if (offer.item === 'temperature') {
-      gameState.temperature = Math.max(0, gameState.temperature - offer.amount);
-      this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80, `降温 ${offer.amount}°`, '#5CFFB1');
-    } else if (offer.item === 'bag') {
-      // §4.3 负载：扩容背包直接降低负载档位，是"搜打撤"中最值的样本去处
-      gameState.bagCapacity += offer.amount;
-      const load = describeLoad(gameState.samples, gameState.bagCapacity);
-      this.showFloatingText(this.merchant.view.x, this.merchant.view.y - 80,
-        `背包扩容 +${offer.amount}（负载 ${load.percent}% · ${load.band.label}）`, '#FDE047');
-    }
+    gameState.coupons = spendCoupons(gameState.coupons, slot.price);
+    stand.bought = true;
+    stand.label.setText(`${slot.name}\n已购出`);
+    stand.view.setStrokeStyle(2, 0x5CFFB1, 0.9);
+    this.applyShopSlot(slot, stand.view.x, stand.view.y);
     this.playSfx('sfx-click', 0.8);
     this.cameraShake(40, 0.0015);
+  }
+
+  /** 把货架商品的载荷落到 gameState 上（每个 kind 的效果都映射到既有状态字段）。 */
+  private applyShopSlot(slot: ShopSlot, x: number, y: number): void {
+    switch (slot.kind) {
+      case 'supply': {
+        const code = Number(slot.payload);
+        if (code === 1) {
+          gameState.maxFreeElectrons = Math.min(6, gameState.maxFreeElectrons + 1);
+          gainFreeElectrons(1);
+          this.showFloatingText(x, y - 80, '自由电子上限 +1', '#67E8F9');
+        } else if (code === 2) {
+          gameState.ehp = gameState.ehpMax;
+          if (gameState.valence < gameState.maxValence) gameState.valence = gameState.maxValence;
+          this.showFloatingText(x, y - 80, '电子恢复', '#5CFFB1');
+        } else if (code === 3) {
+          gameState.temperature = Math.max(0, gameState.temperature - 20);
+          this.showFloatingText(x, y - 80, '降温 20°', '#5CFFB1');
+        } else {
+          gameState.bagCapacity += 1;
+          const load = describeLoad(gameState.samples, gameState.bagCapacity);
+          this.showFloatingText(x, y - 80, `背包扩容 +1（负载 ${load.percent}% · ${load.band.label}）`, '#FDE047');
+        }
+        break;
+      }
+      case 'gear': {
+        gameState.carriedGear.push(String(slot.payload));
+        this.showFloatingText(x, y - 80, `获得装备 ${slot.name}（撤离才保得住）`, '#FDE047');
+        break;
+      }
+      case 'dye': {
+        // 优先填空的染色槽；三个槽都满了就替换主槽
+        const empty = gameState.dyeSlots.find((s) => !s.dyeId);
+        const target = empty ?? gameState.dyeSlots[0];
+        const dyeId = String(slot.payload);
+        target.dyeId = dyeId;
+        target.purity = empty ? 1 : 0.25;
+        const name = getDye(dyeId)?.name ?? dyeId;
+        this.showFloatingText(x, y - 80, `染色 ${name}（${empty ? '主槽' : '替换主槽'}）`, '#F5D0FE');
+        break;
+      }
+      case 'evolution':
+      case 'purify': {
+        const dyeId = String(slot.payload);
+        gameState.dyeEvolution[dyeId] = (gameState.dyeEvolution[dyeId] ?? 0) + 1;
+        const name = getDye(dyeId)?.name ?? dyeId;
+        this.showFloatingText(x, y - 80, `${name} 进化等级 +1`, '#67E8F9');
+        break;
+      }
+    }
+    if (this.merchant) this.merchant.title.setText(`⚗ 诡商 · 持有 ${gameState.coupons} 券`);
   }
 
   private showFloatingText(x: number, y: number, text: string, color: string): void {
@@ -3413,7 +3484,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.merchant) {
       this.merchant.view.destroy();
-      this.merchant.label.destroy();
+      this.merchant.title.destroy();
+      // 展台也要拆，否则切房间后货架会跟着残留在场上
+      this.merchant.stands.forEach((s) => {
+        s.view.destroy();
+        s.label.destroy();
+      });
       this.merchant = null;
     }
     if (this.instrument) {

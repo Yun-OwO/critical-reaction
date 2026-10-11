@@ -1,4 +1,3 @@
-import { BAG_UPGRADE_AMOUNT, BAG_UPGRADE_COST } from '../combat/load';
 import { pickGearDrop } from './gear';
 
 export type EnemyKind = 'chaser' | 'ranged' | 'tank' | 'healer' | 'acid' | 'sniper' | 'summoner' | 'shielder';
@@ -24,12 +23,6 @@ export interface RoomWaveConfig {
 
 export interface RoomReward {
   kind: 'samples' | 'freeElectron' | 'temperature';
-  amount: number;
-}
-
-export interface ShopOffer {
-  cost: number;
-  item: 'electronMax' | 'heal' | 'temperature' | 'bag';
   amount: number;
 }
 
@@ -94,7 +87,6 @@ export interface RoomDef {
   layer: number;
   waves: RoomWaveConfig[];
   reward: RoomReward | null;
-  shop: ShopOffer | null;
   /** 事件房的一次性仪器（其他房间为 null） */
   instrument: InstrumentOffer | null;
   /** 染料房的染缸选项（其他房间为 null） */
@@ -242,7 +234,7 @@ export function buildComposition(
 
 /** 创建房间定义（id 自增）。 */
 export function createRoom(type: RoomType, depth: number, layer: number, rng: () => number = Math.random): RoomDef {
-  const room: RoomDef = { id: nextRoomId++, type, depth, layer, waves: [], reward: null, shop: null, instrument: null, dye: null, gearDrop: null };
+  const room: RoomDef = { id: nextRoomId++, type, depth, layer, waves: [], reward: null, instrument: null, dye: null, gearDrop: null };
   if (type === 'combat' || type === 'extraction') {
     // 撤离房与战斗房同构：先清怪，清空后才解锁通风橱撤离
     room.waves = makeCombatWaves(layer);
@@ -269,17 +261,8 @@ export function createRoom(type: RoomType, depth: number, layer: number, rng: ()
     // 10% 出装备：宝箱是局内最稳定的「搜」来源
     else room.gearDrop = pickGearDrop(rng);
   }
-  if (type === 'shop') {
-    // 商店报价：电子上限 / 恢复 / 降温 / 背包扩容（§4.3 负载的样本去处）
-    const roll = rng();
-    room.shop = roll < 0.3
-      ? { cost: 5, item: 'electronMax', amount: 1 }
-      : roll < 0.55
-        ? { cost: 3, item: 'heal', amount: 100 }
-        : roll < 0.8
-          ? { cost: 4, item: 'temperature', amount: 20 }
-          : { cost: BAG_UPGRADE_COST, item: 'bag', amount: BAG_UPGRADE_AMOUNT };
-  }
+  // 商店商品已由 data/shop.ts 的 rollShop 按层数生成（含每层保底稀有色），
+  // RoomDef 不再携带单件报价——那套「随机抽一件 + 样本定价」已被 4 格券货架取代。
   return room;
 }
 
