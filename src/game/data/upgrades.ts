@@ -16,6 +16,8 @@
  * 稀有度：普通 → 稀有 → 史诗 → 神话
  */
 
+import type { WeaponType } from './weapons';
+
 export type BoonSlot = 'attack' | 'special' | 'dash' | 'passive' | 'vitality' | 'awaken' | 'capacity' | 'might' | 'swift';
 export type BoonRarity = 'common' | 'rare' | 'epic' | 'mythic';
 export type ElementSchool = 'H' | 'O' | 'C' | 'cat';
@@ -29,6 +31,13 @@ export interface BoonDef {
   school: ElementSchool;
   rarity: BoonRarity;
   rarityScale: Record<BoonRarity, number>;
+  /**
+   * 按当前手持武器切换的描述文案。
+   * 玩家每局同时持有近战刀与远程炮、可随时切换，同一祝福在两把武器下的实际效果
+   * 可能不同（如等离子体：近战加挥斩半径、远程加光束宽度），卡片按当前武器展示，
+   * 避免出现「写着加范围、实际加的是宽度」这种对不上的观感。缺省项回落到 desc。
+   */
+  weaponDesc?: Partial<Record<WeaponType, string>>;
 }
 
 /** 学派配色 */
@@ -118,7 +127,12 @@ export const BOON_POOL: BoonDef[] = [
   {
     id: 'o-sp-plasma', name: '等离子体', desc: '特殊攻击范围 +50%，命中额外夺取 {n} 颗电子',
     icon: '🌀', slot: 'special', school: 'O', rarity: 'rare',
-    rarityScale: { common: 0, rare: 1, epic: 1, mythic: 2 }
+    rarityScale: { common: 0, rare: 1, epic: 1, mythic: 2 },
+    // 近战吃的是挥斩半径，远程光束长度固定已满屏、实际吃的是光束宽度
+    weaponDesc: {
+      melee: '挥斩范围 +50%，命中额外夺取 {n} 颗电子',
+      ranged: '光束宽度 +50%，命中额外夺取 {n} 颗电子'
+    }
   },
   {
     id: 'o-dash-mist', name: '氧化雾', desc: '冲刺留下毒雾，范围内每秒夺取 {n} 颗电子',
@@ -177,12 +191,22 @@ export const BOON_POOL: BoonDef[] = [
   {
     id: 'cat-sp-homing', name: '分子间力', desc: '特殊攻击自动追踪最近敌人',
     icon: '🧲', slot: 'special', school: 'cat', rarity: 'common',
-    rarityScale: { common: 1, rare: 1, epic: 1, mythic: 1 }
+    rarityScale: { common: 1, rare: 1, epic: 1, mythic: 1 },
+    // 近战特殊是 360° 全周挥斩，本就全方向命中，「追踪」无从谈起；
+    // 取名称本义（分子间作用力＝吸引）改为把敌人朝玩家牵引，与挥斩击退相反、负责聚怪
+    weaponDesc: {
+      melee: '特殊攻击将周围敌人向你牵引',
+      ranged: '特殊攻击自动追踪最近敌人'
+    }
   },
   {
     id: 'cat-sp-multi', name: '多相催化', desc: '特殊攻击额外发射 {n} 发弹体',
     icon: '✦', slot: 'special', school: 'cat', rarity: 'rare',
-    rarityScale: { common: 0, rare: 1, epic: 2, mythic: 3 }
+    rarityScale: { common: 0, rare: 1, epic: 2, mythic: 3 },
+    weaponDesc: {
+      melee: '挥斩同时向外甩出 {n} 发弹体',
+      ranged: '特殊攻击额外发射 {n} 发弹体'
+    }
   },
   {
     id: 'cat-dash-echo', name: '共振冲刺', desc: '冲刺后下一次攻击夺取电子 ×{n}',
@@ -196,10 +220,14 @@ export const BOON_POOL: BoonDef[] = [
   }
 ];
 
-/** 根据稀有度替换描述中的占位符 */
-export function formatBoonDesc(boon: BoonDef): string {
+/**
+ * 根据稀有度替换描述中的占位符。
+ * @param weapon 当前手持武器形态：命中 weaponDesc 时改用该武器的文案
+ */
+export function formatBoonDesc(boon: BoonDef, weapon?: WeaponType): string {
   const v = boon.rarityScale[boon.rarity];
-  let text = boon.desc
+  const source = (weapon && boon.weaponDesc?.[weapon]) || boon.desc;
+  let text = source
     .replace(/\{n\}/g, String(Math.round(v)))
     .replace(/\{pct\}/g, String(Math.round(v)));
   // 碳系：显示对应的数值

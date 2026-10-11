@@ -35,10 +35,13 @@ export interface WeaponFormData {
   loadScale?: number;
 }
 
+/** 武器攻击形态：近战挥斩 / 远程弹道 */
+export type WeaponType = 'melee' | 'ranged';
+
 export interface WeaponData {
   id: WeaponId;
   name: string;
-  type: 'melee' | 'ranged';
+  type: WeaponType;
   baseDamage: number;
   cooldown: number;
   range: number;

@@ -2026,6 +2026,8 @@ export class GameScene extends Phaser.Scene {
     }
     if (subtitle) subtitle.textContent = '选择一项祝福';
 
+    // 卡片文案按当前手持武器显示（等离子体：近战加挥斩半径 / 远程加光束宽度）
+    const weaponType = getWeapon(gameState.currentWeapon).type;
     this.upgradeChoices.forEach((boon, i) => {
       const school = SCHOOL_COLORS[boon.school];
       const rarityColor = RARITY_COLORS[boon.rarity];
@@ -2035,13 +2037,13 @@ export class GameScene extends Phaser.Scene {
       const slotIcon = SLOT_ICONS[boon.slot];
 
       // 强化预览：同祝福已装备且未满级时，展示强化后的效果数值
-      let desc = formatBoonDesc(boon);
+      let desc = formatBoonDesc(boon, weaponType);
       let replaceHtml = equipped ? `<div class="card-replace">⚠ 替换 ${slotName}：${equipped.name}</div>` : '';
       if (sameId) {
         if (sameId.level < 2) {
           const nextLevel = sameId.level + 1;
           const nextVal = this.boonRarityValue(boon, nextLevel);
-          desc = formatBoonDesc({ ...boon, rarityScale: { ...boon.rarityScale, [boon.rarity]: nextVal } });
+          desc = formatBoonDesc({ ...boon, rarityScale: { ...boon.rarityScale, [boon.rarity]: nextVal } }, weaponType);
           replaceHtml = `<div class="card-replace" style="color:#5CFFB1">⬆ 强化 ${boon.name} → Lv.${nextLevel + 1}</div>`;
         } else {
           replaceHtml = `<div class="card-replace" style="color:#94a3b8">${boon.name} 已满级</div>`;
@@ -3705,30 +3707,7 @@ export class GameScene extends Phaser.Scene {
     if (weapon.type === 'ranged') {
       this.laserAttack(aimAngle, consumed);
       // 祝福「多相催化」：特殊攻击额外发射弹体
-      const multiCount = this.boonValue('cat-sp-multi');
-      if (multiCount > 0) {
-        const spread = 0.25;
-        for (let i = 0; i < multiCount; i++) {
-          const offset = (i - (multiCount - 1) / 2) * spread;
-          const extraAngle = aimAngle + offset;
-          const ex = px + Math.cos(extraAngle) * 34;
-          const ey = py + Math.sin(extraAngle) * 34;
-          const glow2 = this.add.circle(ex, ey, 12, 0xa78bfa, 0.12)
-            .setStrokeStyle(2, 0xa78bfa, 0.6).setBlendMode(Phaser.BlendModes.ADD);
-          const glow = this.add.circle(ex, ey, 8, 0xa78bfa, 0.25)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          const proj = this.add.circle(ex, ey, 4, 0xa78bfa)
-            .setStrokeStyle(2, 0xffffff).setBlendMode(Phaser.BlendModes.ADD);
-          const speed = 600;
-          this.projectiles.push({
-            view: proj, glow, glow2,
-            vx: Math.cos(extraAngle) * speed,
-            vy: Math.sin(extraAngle) * speed,
-            target: target?.enemy ?? null,
-            bossTarget: false
-          });
-        }
-      }
+      this.fireMultiProjectiles(px, py, aimAngle, target?.enemy ?? null);
     } else {
       this.spinSlash(consumed);
     }
@@ -3745,6 +3724,35 @@ export class GameScene extends Phaser.Scene {
     }
     // 角色动画反馈：特殊攻击期间电子轨道进入爆发状态
     this.setPlayerOrbitState('special', 0.9);
+  }
+
+  /**
+   * 祝福「多相催化」：沿 aimAngle 均匀扇出 n 发弹体。
+   * 近战挥斩与远程激光共用此出口 —— 原先只有远程分支会补射，近战拿到该祝福等于空选。
+   */
+  private fireMultiProjectiles(px: number, py: number, aimAngle: number, target: RuntimeEnemy | null): void {
+    const multiCount = this.boonValue('cat-sp-multi');
+    if (multiCount <= 0) return;
+    const spread = 0.25;
+    for (let i = 0; i < multiCount; i += 1) {
+      const extraAngle = aimAngle + (i - (multiCount - 1) / 2) * spread;
+      const ex = px + Math.cos(extraAngle) * 34;
+      const ey = py + Math.sin(extraAngle) * 34;
+      const glow2 = this.add.circle(ex, ey, 12, 0xa78bfa, 0.12)
+        .setStrokeStyle(2, 0xa78bfa, 0.6).setBlendMode(Phaser.BlendModes.ADD);
+      const glow = this.add.circle(ex, ey, 8, 0xa78bfa, 0.25)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      const proj = this.add.circle(ex, ey, 4, 0xa78bfa)
+        .setStrokeStyle(2, 0xffffff).setBlendMode(Phaser.BlendModes.ADD);
+      const speed = 600;
+      this.projectiles.push({
+        view: proj, glow, glow2,
+        vx: Math.cos(extraAngle) * speed,
+        vy: Math.sin(extraAngle) * speed,
+        target,
+        bossTarget: false
+      });
+    }
   }
 
   /** 祝福「分子壁垒」：生成一面持续 seconds 秒的护盾墙（垂直朝向 aimAngle）。 */
@@ -4207,6 +4215,7 @@ export class GameScene extends Phaser.Scene {
 
     // 起始朝向：视野内最近敌人（仅决定横扫起点，360° 覆盖所有方向）
     let aimAngle = Math.atan2(this.lastDirection.y, this.lastDirection.x);
+    let nearestTarget: RuntimeEnemy | null = null;
     {
       const cam = this.cameras.main;
       const margin = 60;
@@ -4219,6 +4228,7 @@ export class GameScene extends Phaser.Scene {
         const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.view.x, enemy.view.y);
         if (d < nearestDist) {
           nearestDist = d;
+          nearestTarget = enemy;
           aimAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.view.x, enemy.view.y);
         }
       }
@@ -4274,6 +4284,42 @@ export class GameScene extends Phaser.Scene {
           this.applyHitStop(0.06);
           this.cameraShake(80, 0.0025);
           hapticHit();
+        }
+
+        // ---- 近战端祝福适配（与远程分支对齐；只在首斩结算，避免三斩叠加）----
+        if (isFirstSlash) {
+          // 多相催化：挥斩同时向外甩出 n 发弹体。原先只有远程分支补射，
+          // 近战拿到这条祝福等于空选。
+          this.fireMultiProjectiles(px, py, aimAngle, nearestTarget);
+          // 分子间力：近战特殊是 360° 全周，本来就全方向命中，「追踪」无从谈起；
+          // 取名称本义（分子间作用力＝吸引）改为把敌人朝玩家牵引，
+          // 与挥斩自身的击退方向相反 —— 击退负责推开、牵引负责把散开的敌人聚拢回下一斩。
+          if (this.hasBoon('cat-sp-homing')) {
+            const pullRadius = bladeLen * 1.5;
+            let pulled = 0;
+            for (const enemy of this.enemies) {
+              if (!enemy.view.visible) continue;
+              const dist = Phaser.Math.Distance.Between(px, py, enemy.view.x, enemy.view.y);
+              // < 24 跳过：已经贴在身上的不必再往回拽
+              if (dist > pullRadius || dist < 24) continue;
+              const pullAngle = Phaser.Math.Angle.Between(enemy.view.x, enemy.view.y, px, py);
+              enemy.pushX += Math.cos(pullAngle) * 300;
+              enemy.pushY += Math.sin(pullAngle) * 300;
+              pulled += 1;
+            }
+            if (pulled > 0) {
+              const ring = this.add.circle(px, py, pullRadius, 0xa78bfa, 0)
+                .setStrokeStyle(3, 0xa78bfa, 0.7)
+                .setBlendMode(Phaser.BlendModes.ADD).setDepth(90);
+              this.tweens.add({
+                targets: ring,
+                scale: { from: 1.05, to: 0.4 },
+                alpha: { from: 0.9, to: 0 },
+                duration: 300,
+                onComplete: () => ring.destroy()
+              });
+            }
+          }
         }
 
         // ---- 视觉：光剑从 aimAngle-180° 横扫到 aimAngle+180°（360°）----
