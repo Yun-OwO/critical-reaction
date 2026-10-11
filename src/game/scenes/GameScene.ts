@@ -651,6 +651,13 @@ export class GameScene extends Phaser.Scene {
   }
   /** 熔毁倒计时（温度 ≥95 时 15s 一轮，到期重创玩家；设计文档 §6.1）。 */
   private meltdownTimer = 15;
+  /**
+   * 熔毁剩余秒数，给 HUD 读秒用（Hades 复盘 P1-8）。温度 <95 时上面的逻辑会把
+   * meltdownTimer 重置为满值 15，UI 据此能区分「在倒计时」和「暂时安全」。
+   */
+  public get meltdownSecondsLeft(): number {
+    return this.meltdownTimer;
+  }
   /** 临界温度（≥80）的周期性震屏计时器。 */
   private heatShakeTimer = 0;
   /** 特殊攻击"电子不足"提示的节流计时器。 */

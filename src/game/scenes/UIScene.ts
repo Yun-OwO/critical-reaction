@@ -42,6 +42,8 @@ interface GameSceneRef {
   boss: { view: { visible: boolean; x: number; y: number }; phase: number; config: { name: string; color: number } } | null;
   roomDoors: { x: number; y: number; target: RoomDef }[];
   scene: Phaser.Scenes.ScenePlugin;
+  /** 熔毁倒计时剩余秒数（温度 <95 时恒为满值 15，UI 据此判断是否显示读秒）。 */
+  meltdownSecondsLeft?: number;
 }
 
 /** 温度状态分段（设计文档 §6.1 温度标度，色值取自 STATE_COLORS）。 */
@@ -450,10 +452,22 @@ export class UIScene extends Phaser.Scene {
     if (this.tempFill.fillColor !== fillColor) this.tempFill.fillColor = fillColor;
     setTextSafe(this.tempLabel, `${Math.round(gameState.temperature)}°`);
     setColorSafe(this.tempLabel, tempState.color);
+    // 熔毁读秒（Hades 复盘 P1-8）：把剩余秒数直接写进状态标签本身，不新建 Text、
+    // 不动布局 —— 移动端温度计下方的空间是按「一行状态文字」预留的，多加一行会压到按钮组。
     setTextSafe(this.tempStateLabel, tempState.label);
-    setColorSafe(this.tempStateLabel, tempState.color);
+    let tempStateColor = tempState.color;
+    const gsRef = this.scene.get('GameScene') as unknown as GameSceneRef | null;
+    const meltdownLeft = gsRef?.meltdownSecondsLeft;
+    if (gameState.temperature >= 95 && typeof meltdownLeft === 'number') {
+      setTextSafe(this.tempStateLabel, `${tempState.label} ${Math.max(0, meltdownLeft).toFixed(1)}s`);
+      // 最后 3s 转白：读作"马上就要炸了"
+      if (meltdownLeft <= 3) tempStateColor = '#FFFFFF';
+    }
+    setColorSafe(this.tempStateLabel, tempStateColor);
     if (gameState.temperature >= 80) {
-      this.tempStateLabel.setAlpha(0.6 + 0.4 * Math.sin(this.time.now * 0.012));
+      // 最后 3s 脉冲频率翻倍，让"快炸了"从读数变成能感知的节奏
+      const urgent = gameState.temperature >= 95 && typeof meltdownLeft === 'number' && meltdownLeft <= 3;
+      this.tempStateLabel.setAlpha(0.6 + 0.4 * Math.sin(this.time.now * (urgent ? 0.024 : 0.012)));
     } else if (this.tempStateLabel.alpha !== 1) {
       this.tempStateLabel.setAlpha(1);
     }
