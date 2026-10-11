@@ -66,6 +66,8 @@ export class UIScene extends Phaser.Scene {
   private hpValText!: Phaser.GameObjects.Text;
   private electronValText!: Phaser.GameObjects.Text;
   private modeChipText!: Phaser.GameObjects.Text;
+  /** 局内货币「催化券」读数（常驻）。 */
+  private couponText!: Phaser.GameObjects.Text;
   private sampleValText!: Phaser.GameObjects.Text;
   private loadValText!: Phaser.GameObjects.Text;
   private catalValText!: Phaser.GameObjects.Text;
@@ -200,6 +202,12 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0, 0.5).setDepth(12);
     this.modeChipText = this.add.text(coreX + coreR + 84 * s, coreY, '', {
       color: '#FF8A4C', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`, fontStyle: 'bold'
+    }).setOrigin(0, 0.5).setDepth(12);
+
+    // 催化券读数（局内货币）：必须常驻可见，否则整个投资闭环玩家算不清账。
+    // 放在模式芯片正下方，不挤占温度计那一列。
+    this.couponText = this.add.text(coreX + coreR + 84 * s, coreY + 20 * s, '', {
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(13 * s)}px`
     }).setOrigin(0, 0.5).setDepth(12);
 
     this.dashText = this.add.text(barX, barY + 34 * s, '', {
@@ -442,6 +450,9 @@ export class UIScene extends Phaser.Scene {
     setColorSafe(this.electronValText, es.overloaded ? '#FF5C7A' : es.overOxidized ? '#FF4D6D' : '#FFFFFF');
     setTextSafe(this.modeChipText, gameState.mode === 'oxidized' ? '◆ 氧化' : '◆ 还原');
     setColorSafe(this.modeChipText, gameState.mode === 'oxidized' ? '#FF8A4C' : '#FDE047');
+    // 催化券：局内唯一可消费的资源，常驻显示才谈得上「精打细算」。
+    // 只在有券时占位，0 券时留空，避免开局视野里多一块永远为 0 的噪声。
+    setTextSafe(this.couponText, gameState.coupons > 0 ? `◈ ${gameState.coupons} 券` : '');
 
     // 温度计
     const tempRatio = Phaser.Math.Clamp(gameState.temperature / 100, 0, 1);

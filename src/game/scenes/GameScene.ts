@@ -6,6 +6,8 @@ import { getWeaponForm, getWeaponLevel } from '../state/ProfileState';
 import { getGear, pickGearDrop, GEAR_RARITY_META } from '../data/gear';
 import { COMBAT_POOL, EXTRACTION_DEFS, ROOM_THEMES, buildComposition, generateRoomDoors, generateStartRoom, makeCombatWaves, getLayerName, getLayerProgress, getLayerHpScale, getLayerSpeedScale, createFinalBossRoom, pickExtraction, settleExtractionSamples } from '../data/rooms';
 import type { EnemyKind, ExtractionDef, InstrumentOffer, RoomDef, RoomEnemyDef, RoomReward, RoomType, ShopOffer } from '../data/rooms';
+import type { EventContext } from '../data/events';
+import { couponsForChest, couponsForRoom, settleCoupons } from '../data/shop';
 import { getBossConfigForLayer } from '../data/bosses';
 import { BALANCE } from '../data/balance';
 import { ATTACK_BUFFER_SEC, DASH_BUFFER_SEC, FEEDBACK, ShakeGovernor, hitTierFor, pitchJitter, squashCurve, stretchCurve } from '../visual/feedback';
@@ -2007,6 +2009,36 @@ export class GameScene extends Phaser.Scene {
     this.spawnTelegraphs.push(timer);
   }
 
+  /**
+   * 发催化券：局内货币的统一入口。
+   * 单独抽出来是因为局内券是投资系统的燃料——每一笔来源都必须能对账，
+   * 不然玩家算不清「我这一局到底赚了多少、够不够买那个」。
+   */
+  private grantCoupons(amount: number, source: string): void {
+    if (amount <= 0) return;
+    gameState.coupons += amount;
+    this.showFloatingText(this.player.x, this.player.y - 128, `${source} +${amount} 券`, '#67E8F9');
+    this.playSfx('sfx-ding', 0.55);
+  }
+
+  /** 把 gameState 拍成事件/货架逻辑要的只读快照（两个纯函数层共用同一份口径）。 */
+  private eventContext(): EventContext {
+    return {
+      coupons: gameState.coupons,
+      ehp: gameState.ehp,
+      ehpMax: gameState.ehpMax,
+      valence: gameState.valence,
+      maxValence: gameState.maxValence,
+      temperature: gameState.temperature,
+      layer: gameState.layer,
+      dyeCount: gameState.dyeSlots.filter((s) => s.dyeId).length,
+      gearCount: gameState.carriedGear.length,
+      boonCount: gameState.equippedBoons.length,
+      kills: gameState.kills,
+      seen: gameState.seenEvents
+    };
+  }
+
   private onRoomCleared(): void {
     this.roomClearTimer = 0.45;
     this.roomClearRewardGiven = true;
@@ -2027,6 +2059,14 @@ export class GameScene extends Phaser.Scene {
     if (this.roomDef.type === 'elite' && this.roomDef.reward) {
       this.applyReward(this.roomDef.reward, '精英房');
       if (this.roomDef.gearDrop) this.spawnGearDrop(this.roomDef.gearDrop, this.player.x + Phaser.Math.Between(-160, 160), this.player.y + Phaser.Math.Between(-110, 110));
+    }
+    // 战斗房出催化券：同层内越深入给得越多，精英翻倍。
+    // 这是局内唯一的稳定券来源，所以它同时也是「要不要继续往深处推」的经济学依据。
+    if (this.roomDef.type === 'combat' || this.roomDef.type === 'elite' || this.roomDef.type === 'boss') {
+      this.grantCoupons(
+        couponsForRoom(gameState.roomIndex, this.roomDef.type === 'elite'),
+        this.roomDef.type === 'elite' ? '精英房' : this.roomDef.type === 'boss' ? 'Boss 房' : '清场'
+      );
     }
     // 战斗房/精英房清空后刷新普通祝福光团；Boss 房给「觉醒祝福」（特殊池，见 SPECIAL_BOONS）
     if (this.roomDef.type === 'combat' || this.roomDef.type === 'boss' || this.roomDef.type === 'elite') {
@@ -3168,6 +3208,8 @@ export class GameScene extends Phaser.Scene {
     this.cameraShake(60, 0.002);
     this.playSfx('sfx-click', 0.8);
     this.applyReward(reward, '宝箱');
+    // 宝箱是局内最大的稳定券来源，值得专门绕路去开
+    this.grantCoupons(couponsForChest(), '宝箱');
     if (this.chest.gearDrop) this.spawnGearDrop(this.chest.gearDrop, x, y + 70);
     emit('treasure', { kind: reward.kind, amount: reward.amount });
   }
@@ -6891,7 +6933,12 @@ export class GameScene extends Phaser.Scene {
         const settled = Math.round((BALANCE.samples.extractionBase + heatBonus) * this.gearSampleMult);
         // 通关撤离：一次性通关奖励（不打折、不吃倍率，账目单列）
         const clearBonus = gameState.runComplete ? BALANCE.samples.finalClearBonus : 0;
-        const gained = settleExtractionSamples(carried + settled + clearBonus, this.extractionDef);
+        // 催化券只在「活着撤离」这一步兑现：它是投资系统的燃料，必须死在局内，
+        // 否则就变成第二套局外货币，「牺牲本局战力换跨局进度」这个抉择就不存在了。
+        const couponGain = settleCoupons(gameState.coupons, true);
+        const carriedCoupons = gameState.coupons;
+        gameState.coupons = 0;
+        const gained = settleExtractionSamples(carried + settled + clearBonus + couponGain, this.extractionDef);
         // 稳定化反应消耗 1 自由电子作为试剂
         if (this.extractionDef.reagentCost > 0) {
           gameState.freeElectrons = Math.max(0, gameState.freeElectrons - this.extractionDef.reagentCost);
@@ -6916,6 +6963,7 @@ export class GameScene extends Phaser.Scene {
             { label: '携带样本', value: `+${carried}` },
             { label: '完成奖励', value: `+${settled}` },
             ...(gameState.runComplete ? [{ label: '通关奖励', value: `+${BALANCE.samples.finalClearBonus}` }] : []),
+            { label: '催化券', value: `${carriedCoupons} 券 → +${couponGain}（撤离才兑现）` },
             { label: '撤离点', value: `×${this.extractionDef.rewardMult}${this.extractionDef.lossRate > 0 ? ` · 损坏 ${Math.round(this.extractionDef.lossRate * 100)}%` : ''}` },
             { label: '入库装备', value: bankedGear > 0 ? `${bankedGear} 件` : '—' },
             { label: '总入账样本', value: `+${gained}`, total: true }
