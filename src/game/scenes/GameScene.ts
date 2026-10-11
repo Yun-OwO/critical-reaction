@@ -77,6 +77,10 @@ interface RuntimeEnemy {
   orbitArcs: Phaser.GameObjects.Arc[];
   chargeTimer: number;
   chargeActive: boolean;
+  /** 近战攻击前摇：剩余秒数 / 判定半径 / 预警圈（>0 时该敌人停在蓄力中）。 */
+  windupTimer: number;
+  windupRange: number;
+  windupMark: Phaser.GameObjects.Arc | null;
   /** 燃烧/腐蚀 DoT：剩余秒数、每跳伤害、特效色。 */
   dotTimer: number;
   dotTick: number;
@@ -1736,6 +1740,9 @@ export class GameScene extends Phaser.Scene {
       orbitArcs: [],
       chargeTimer: 4 + Math.random() * 2,
       chargeActive: false,
+      windupTimer: 0,
+      windupRange: 0,
+      windupMark: null,
       dotTimer: 0,
       dotTick: 0,
       dotDamage: 0,
@@ -3381,6 +3388,8 @@ export class GameScene extends Phaser.Scene {
       enemy.outerHalo?.destroy();
       enemy.orbitArcs.forEach((arc) => arc.destroy());
       enemy.eliteRing?.destroy();
+      enemy.windupMark?.destroy();
+      enemy.windupMark = null;
     });
     this.enemies = [];
     if (this.boss) {
@@ -4745,6 +4754,58 @@ export class GameScene extends Phaser.Scene {
       }
   }
 
+  /**
+   * 开启一次近战攻击前摇（Hades「敌人意图必须 100% 可读」）。
+   *
+   * 本项目两条近战伤害路径原先都是「距离够就直接扣血」：追击者的范围爆是红圈在
+   * **伤害之后**才播（等于事后补票），贴身接触伤害更是连红圈都没有。玩家既无法提前
+   * 得知、也无法学习规避 —— 这是「反馈可预期可学习」的硬性违反。
+   *
+   * 这里把判定推迟 `seconds`，期间敌人**照常追击**（否则玩家一拉开距离就永远不会
+   * 被打中，前摇会变成纯粹的削弱），预警圈从攻击半径收缩到脚下并脉冲提亮。
+   * 读得懂就躲得掉，但贴身接触伤害只给 0.3s，压迫感还在。
+   *
+   * 对象开销 1 个 Arc + 2 个 tween、播完即毁，与 enemyBeamAttack 的预警同频
+   * （每敌约 1 次 / 1.5–2.8s），不属于「每命中新建对象」那类高频路径。
+   */
+  private startMeleeWindup(enemy: RuntimeEnemy, range: number, seconds: number): void {
+    enemy.windupTimer = seconds;
+    enemy.windupRange = range;
+    const mark = this.add.circle(enemy.view.x, enemy.view.y, range, 0xff4d6d, 0.08)
+      .setStrokeStyle(3, 0xff4d6d, 0.8)
+      .setDepth(103)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    enemy.windupMark = mark;
+    // 缩小 = 蓄力收束，与 enemyBeamAttack 的「线束收缩」同一套视觉语言
+    this.tweens.add({ targets: mark, scale: { from: 1, to: 0.32 }, duration: seconds * 1000, ease: 'Cubic.in' });
+    // 闪烁提亮：给「快出手了」再补一层可读性
+    this.tweens.add({ targets: mark, alpha: { from: 0.35, to: 0.95 }, duration: seconds * 500, yoyo: true, ease: 'Sine.inOut' });
+    this.playTone(150, seconds * 0.9, 'sawtooth', 0.045);
+  }
+
+  /** 收掉预警圈：被僵直打断、被击杀、结算完毕都要走这里。当前无预警圈时是空操作。 */
+  private cancelMeleeWindup(enemy: RuntimeEnemy): void {
+    enemy.windupTimer = 0;
+    const mark = enemy.windupMark;
+    enemy.windupMark = null;
+    if (!mark) return;
+    this.tweens.killTweensOf(mark);
+    this.tweens.add({ targets: mark, alpha: 0, duration: 120, onComplete: () => mark.destroy() });
+  }
+
+  /** 前摇结束：**重新测距**后才结算，走开了就落空（前摇期敌人还在追击，距离会变）。 */
+  private resolveMeleeWindup(enemy: RuntimeEnemy, distance: number): void {
+    const range = enemy.windupRange;
+    this.cancelMeleeWindup(enemy);
+    if (distance > range) return;    // 玩家已经走出去了 —— 读得懂就躲得掉
+    this.damagePlayer();
+    const aoe = this.add.circle(enemy.view.x, enemy.view.y, range, 0xff4d6d, 0)
+      .setStrokeStyle(3, 0xff4d6d, 0.85)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: aoe, scale: { from: 0.4, to: 1.6 }, alpha: 0, duration: 320, onComplete: () => aoe.destroy() });
+    this.playTone(220, 0.12, 'square', 0.06);
+  }
+
   private updateEnemies(delta: number): void {
     this.enemies.forEach((enemy) => {
       // 到点的合并伤害数字先吐：必须放在僵直 / 不可见的早退之前，
@@ -4753,6 +4814,8 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.view.visible) return;
       if (enemy.stunTimer > 0) {
         enemy.stunTimer -= delta;
+        // 被僵直时前摇作废：蓄力被打断了，不该在僵直结束后突然结算伤害
+        if (enemy.windupTimer > 0) this.cancelMeleeWindup(enemy);
         // ADD 混合下 setTint 几乎不可见，僵直改用 alpha 频闪表达
         enemy.view.setAlpha(0.5 + 0.5 * Math.abs(Math.sin(this.time.now * 0.02)));
         enemy.aura.setPosition(enemy.view.x, enemy.view.y);
@@ -4786,6 +4849,13 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.enteredCombat && distance < 520) {
         enemy.enteredCombat = true;
         this.activateOrbitArcs(enemy);
+      }
+      // 近战攻击前摇：预警圈跟着敌人走，到点才判定伤害。前摇期间**照常追击**
+      // （否则玩家一拉开距离就永远不会被打中），但不再开新攻击（见下面两处守卫）。
+      if (enemy.windupMark) enemy.windupMark.setPosition(enemy.view.x, enemy.view.y);
+      if (enemy.windupTimer > 0) {
+        enemy.windupTimer -= delta;
+        if (enemy.windupTimer <= 0) this.resolveMeleeWindup(enemy, distance);
       }
       this.updateOrbitVisual(enemy, delta);
       // 温度档位（设计文档 §6.1）：过热(60-80)敌人 +10% 速度，临界(80+) +25%；高温同时缩短敌人攻击间隔（上限 -30%）
@@ -4861,14 +4931,11 @@ export class GameScene extends Phaser.Scene {
       } else if (enemy.kind === 'chaser') {
         moveTo(70);
         enemy.shotTimer -= delta;
-        if (enemy.shotTimer <= 0 && distance < 100) {
+        // 前摇先行：先亮出红圈预警、到点才结算。原先是「距离够就直接扣血，红圈事后补播」，
+        // 玩家既无法提前得知也无法学习规避。
+        if (enemy.shotTimer <= 0 && distance < 100 && enemy.windupTimer <= 0) {
           enemy.shotTimer = 2.8 * heatAtkMult;
-          this.damagePlayer();
-          const aoe = this.add.circle(enemy.view.x, enemy.view.y, 60, 0xff4d6d, 0)
-            .setStrokeStyle(3, 0xff4d6d, 0.85)
-            .setBlendMode(Phaser.BlendModes.ADD);
-          this.tweens.add({ targets: aoe, scale: { from: 0.5, to: 2.5 }, alpha: 0, duration: 320, onComplete: () => aoe.destroy() });
-          this.playTone(220, 0.12, 'square', 0.06);
+          this.startMeleeWindup(enemy, 100, BALANCE.combat.meleeWindupSeconds);
         }
       } else if (enemy.kind === 'acid') {
         // 酸怪：2/3 层周期释放酸雾区域（DoT）
@@ -4988,9 +5055,10 @@ export class GameScene extends Phaser.Scene {
       }
       enemy.attackTimer -= delta;
       const meleeContact = enemy.kind === 'chaser' || enemy.kind === 'tank' || enemy.kind === 'acid';
-      if (meleeContact && distance < 76 && enemy.attackTimer <= 0) {
+      // 同上：贴身接触伤害也给前摇。这一路原先连红圈都没有，纯粹无预警扣血。
+      if (meleeContact && distance < 76 && enemy.attackTimer <= 0 && enemy.windupTimer <= 0) {
         enemy.attackTimer = 1.5;
-        this.damagePlayer();
+        this.startMeleeWindup(enemy, 76, BALANCE.combat.contactWindupSeconds);
       }
     });
   }
@@ -5434,6 +5502,8 @@ export class GameScene extends Phaser.Scene {
     target.dead = true;
     // 击杀前把窗口内累加的伤害数字吐出来，否则最后一段伤害会随敌人消失而丢失
     this.flushDamageNumber(target);
+    // 蓄力被打断：预警圈跟着一起收掉，不能留一个"要打人"的红圈在空地上
+    this.cancelMeleeWindup(target);
     target.layerPips.forEach((pip) => pip.destroy());
     target.eliteRing?.destroy();
     target.eliteRing = null;

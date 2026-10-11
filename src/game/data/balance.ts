@@ -154,7 +154,16 @@ export const BALANCE = {
     /** 等价替换的战力容差（±25% 内视为等价） */
     equivalentSwapTolerance: 0.25,
     /** 敌人轨道电子换算：每这么多点 maxHp 一颗电子（线性，容量 8 封顶） */
-    enemyHpPerElectron: 55
+    enemyHpPerElectron: 55,
+    /**
+     * 近战攻击前摇（秒）：先给出可读预警、再结算伤害（Hades「敌人意图必须 100% 可读」）。
+     * 两条伤害路径各给一个值，压迫感不同：
+     * - 追击者的范围爆（半径 100）给 0.35s：走位够快躲得掉，正在挥砍时躲不掉；
+     * - 贴身接触伤害（半径 76）只给 0.3s：双方本来就贴在一起，保留「贴脸就要吃伤害」的
+     *   压迫感，免得拉扯成了无脑解法。
+     */
+    meleeWindupSeconds: 0.35,
+    contactWindupSeconds: 0.3
   },
   /** 反应层数（借鉴 bonds 层系统）：电子转移累积催化层数，全局线性加成 + 里程碑掉落 */
   reaction: {
