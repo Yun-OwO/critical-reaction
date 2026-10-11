@@ -2131,10 +2131,11 @@ export class GameScene extends Phaser.Scene {
       }
     } else {
       const replaced = gameState.equippedBoons.find((b) => b.slot === boon.slot);
-      if (replaced) {
-        const replacedDef = getBoonDef(replaced.id);
-        if (replacedDef) this.revertBoonEffect(replacedDef, replaced.level);
-      }
+      // 注意：旧祝福的回退只能在**真正把它换下**的分支里做一次。
+      // 原实现在进分支前就无条件回退了一次，后果是三条分支全错：
+      //   · 觉醒 / 额外槽位分支——旧祝福仍留在槽内，效果却被扣掉（白丢加成）
+      //   · 普通替换分支——连同分支内的那次共回退两遍，效果被多扣一倍
+      //     （表现即「失去等离子体后，普攻/特殊攻击范围比正常还小」）
       const isSpecial = SPECIAL_BOONS.some((b) => b.id === boon.id);
       if (isSpecial) {
         // 觉醒祝福：独立槽位互不替换，每局各一次
@@ -3777,7 +3778,10 @@ export class GameScene extends Phaser.Scene {
     const px = this.player.x;
     const py = this.player.y;
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
-    const bladeLen = getWeapon(gameState.currentWeapon).range * this.boonSpecialAoeMult * this.weaponMods.rangeMult; // 特殊攻击专用 AOE
+    // 普攻长度只吃武器等级/形态，不乘 boonSpecialAoeMult —— 那是等离子体
+    // 「特殊攻击范围 +50%」的专用倍率（v0.2.2 从 boonAoeMult 分离，本就只为
+    // 不再误伤普攻）。此处漏改，导致拿到该祝福时普攻范围也一起变大。
+    const bladeLen = getWeapon(gameState.currentWeapon).range * this.weaponMods.rangeMult;
     const sweepHalf = Math.PI / 2; // 总扫角 180°
 
     // 自动朝向视野内最近的敌人（含 Boss），无目标时退回移动方向
