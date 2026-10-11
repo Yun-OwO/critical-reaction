@@ -46,6 +46,8 @@ import { getSettings } from '../state/SettingsState';
 import { computeUiScale, currentViewportMetrics } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
+import { FxPool, FX_TEX } from '../utils/Fx';
+import { LoadMonitor } from '../utils/Quality';
 import { generateTerrain } from '../world/biomes';
 import { addLayers, claimMilestones, isRunawayCancel, reactionDamageMult } from '../combat/reaction';
 import { TutorialController } from '../tutorial/TutorialController';
@@ -650,6 +652,10 @@ export class GameScene extends Phaser.Scene {
 
   public create(): void {
     this.input.mouse?.disableContextMenu();
+    // 共享粒子池：一次性特效（命中/爆发/模式切换）统一走这里，不再逐次新建对象+tween
+    this.fx = new FxPool(this);
+    const fxProfile = getVisualProfile();
+    this.fx.setBudget(fxProfile.maxParticles, fxProfile.particleScale);
     resetRun();
     // 本局禁用祝福（卫戍协议「每局禁用盟约」简化版）：强制换 build 防背版
     gameState.disabledBoons = sampleDisabledBoons(BOON_POOL, BALANCE.upgrades.runDisabledCount);
@@ -863,6 +869,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   public update(_: number, delta: number): void {
+    // 粒子预算/积分放在最前：玩家死亡或定格时也要推进，否则残余粒子会永远悬在屏幕上。
+    //  - 基数与尺寸取自「光影质量」档（玩家可手动固定，auto 按设备判定）；
+    //  - 负载档按实测帧率再乘一层衰减，持续掉帧时自动收紧（同一台设备也能自适应）。
+    this.loadMonitor.sample(delta);
+    const profile = getVisualProfile();
+    this.fx.setBudget(profile.maxParticles, profile.particleScale);
+    this.fx.setLoadLevel(this.loadMonitor.loadLevel);
+    this.fx.update(delta);
     if (this.playerDying) {
       this.playerBody.setAcceleration(0, 0);
       return;
@@ -1260,6 +1274,10 @@ export class GameScene extends Phaser.Scene {
   private claimedMilestones = 0;
   /** 音效四重节流（总并发/单源冷却/全局间隔/叠音上限） */
   private sfxLimiter = new SfxLimiter();
+  /** 共享粒子池（见 utils/Fx.ts）：命中/爆发/模式切换等一次性特效统一走这里，不再逐次建对象 */
+  private fx!: FxPool;
+  /** 实测帧率驱动的负载档：持续掉帧时逐级收紧粒子等开销 */
+  private readonly loadMonitor = new LoadMonitor();
   /** 自适应难度：本局已推进房间数 / 本房间已用秒数 / 累计房间耗时 */
   private roomsCleared = 0;
   private roomElapsed = 0;
@@ -3954,44 +3972,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** 命中切割反馈：激光切割白线 + 冲击波环 + 沿剑刃方向火花 */
+  /**
+   * 命中特效：切割亮线 + 冲击环 + 顺刀刃扇出的火花。
+   *
+   * 全部走共享粒子池（utils/Fx.ts）。原先这里每次命中新建 1 Graphics + 1 Circle +
+   * 10 个 Circle、各配一个 tween、播完再 destroy —— 一次 360° 挥斩命中 8 个敌人
+   * 就是 88 个临时对象 + 96 个 tween，display list 反复插拔与 GC 压力是掉帧主因。
+   * 现在 0 个临时 GameObject、0 个 tween。
+   */
   private impactHitAt(x: number, y: number, angle: number, color: number): void {
-    // 垂直于挥砍方向的激光切割亮线
-    const cut = this.add.graphics().setDepth(105).setBlendMode(Phaser.BlendModes.ADD);
     const perp = angle + Math.PI / 2;
-    const halfLen = 36;
-    cut.lineStyle(5, 0xffffff, 1);
-    cut.beginPath();
-    cut.moveTo(x + Math.cos(perp) * halfLen, y + Math.sin(perp) * halfLen);
-    cut.lineTo(x - Math.cos(perp) * halfLen, y - Math.sin(perp) * halfLen);
-    cut.strokePath();
-    cut.lineStyle(9, color, 0.7);
-    cut.beginPath();
-    cut.moveTo(x + Math.cos(perp) * halfLen * 0.8, y + Math.sin(perp) * halfLen * 0.8);
-    cut.lineTo(x - Math.cos(perp) * halfLen * 0.8, y - Math.sin(perp) * halfLen * 0.8);
-    cut.strokePath();
-    this.tweens.add({ targets: cut, alpha: 0, scale: 1.35, duration: 150, onComplete: () => cut.destroy() });
+    // 切割亮线：白芯 + 彩色辉光两层光痕粒子，squash 成细长条并旋转到垂直于挥砍的方向
+    const core = this.fx.opts();
+    core.tint = 0xffffff;
+    core.rot = perp;
+    core.sx = 0.125;             // 24px 纹理 × s0=3 ≈ 72 长，squash 后约 9 宽
+    core.s0 = 3;
+    core.s1 = 3.5;
+    core.a0 = 1;
+    core.a1 = 0;
+    core.life = 0.15;
+    this.fx.particle(FX_TEX.glow, x, y, core);
+    const halo = this.fx.opts();
+    halo.tint = color;
+    halo.rot = perp;
+    halo.sx = 0.24;
+    halo.s0 = 2.7;
+    halo.s1 = 3.2;
+    halo.a0 = 0.7;
+    halo.a1 = 0;
+    halo.life = 0.15;
+    this.fx.particle(FX_TEX.glow, x, y, halo);
 
     // 冲击波环
-    const ring = this.add.circle(x, y, 10, 0xffffff, 0)
-      .setStrokeStyle(4, color, 1)
-      .setBlendMode(Phaser.BlendModes.ADD)
-      .setDepth(104);
-    this.tweens.add({ targets: ring, scale: { from: 0.4, to: 2.8 }, alpha: 0, duration: 230, ease: 'Cubic.out', onComplete: () => ring.destroy() });
+    this.fx.ring(x, y, 4, 28, color, 0.23);
 
-    // 沿剑刃方向飞溅的切割火花
-    for (let i = 0; i < 10; i += 1) {
-      const sparkAngle = angle + Phaser.Math.FloatBetween(-0.55, 0.55);
-      const spark = this.add.circle(x, y, Phaser.Math.FloatBetween(1.5, 3.5), i % 2 === 0 ? 0xffffff : color, 0.95)
-        .setBlendMode(Phaser.BlendModes.ADD).setDepth(106);
-      this.tweens.add({
-        targets: spark,
-        x: x + Math.cos(sparkAngle) * Phaser.Math.FloatBetween(26, 68),
-        y: y + Math.sin(sparkAngle) * Phaser.Math.FloatBetween(26, 68),
-        alpha: 0, scale: 0.2,
-        duration: Phaser.Math.Between(130, 260),
-        onComplete: () => spark.destroy()
-      });
-    }
+    // 沿剑刃方向飞溅的切割火花：锥角扇出 + 初速随机 + 阻力，读作"被溅飞"而非整齐放射
+    this.fx.sparkCone(x, y, angle + Math.PI / 2, 0.55, 9, color, { speed: 3.6, life: 0.22, size: 64 });
   }
 
   private rangedAttack(baseDamage: number, target: { x: number; y: number; enemy?: RuntimeEnemy; boss?: boolean } | undefined, boost = 0): void {
@@ -4632,7 +4649,7 @@ export class GameScene extends Phaser.Scene {
   /** 播放已加载的音效资源（受设置中音量/音效开关控制） */
   private playSfx(key: string, volume = 1, rate = 1): void {
     if (!getSettings().effectsEnabled) return;
-    // 四重节流：总并发 8 / 单源冷却 160ms / 全局间隔 45ms / 叠音上限 2（借鉴卫戍协议 SfxLimiter）
+    // 四重节流：总并发 12 / 单源冷却 160ms / 全局间隔 45ms / 叠音上限 2（借鉴卫戍协议 SfxLimiter）
     if (!this.sfxLimiter.tryPlay(key, this.time.now)) return;
     try {
       this.sound.play(key, { volume: volume * (getSettings().volume / 100), rate });
@@ -6526,47 +6543,23 @@ export class GameScene extends Phaser.Scene {
     this.playTone(nextMode === 'oxidized' ? 660 : 330, 0.12, 'triangle', 0.06);
   }
 
+  /**
+   * 切换氧化/还原态时的爆发环 + 22 片飞溅。
+   * 同样全部走粒子池：原先是 2 个 Circle + 22 个 Circle、各配一个 tween、播完再 destroy。
+   */
   private spawnModeBurst(color: number): void {
-    const ring = this.add.circle(this.player.x, this.player.y, 20, 0xffffff, 0)
-      .setStrokeStyle(5, color, 0.95)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: ring,
-      scale: { from: 0.5, to: 7 },
-      alpha: 0,
-      duration: 450,
-      ease: 'Cubic.out',
-      onComplete: () => ring.destroy()
+    const px = this.player.x;
+    const py = this.player.y;
+    this.fx.ring(px, py, 10, 140, color, 0.45, 0.95);
+    // 内圈白环延后 60ms，构成"双环错拍"的推进感（此处用一个一次性计时器，模式切换是低频事件）
+    this.time.delayedCall(60, () => {
+      if (!this.scene.isActive()) return;
+      this.fx.ring(px, py, 4, 70, 0xffffff, 0.35, 0.7);
     });
-    const ring2 = this.add.circle(this.player.x, this.player.y, 14, 0xffffff, 0)
-      .setStrokeStyle(3, 0xffffff, 0.7)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({
-      targets: ring2,
-      scale: { from: 0.3, to: 5 },
-      alpha: 0,
-      duration: 350,
-      delay: 60,
-      ease: 'Cubic.out',
-      onComplete: () => ring2.destroy()
-    });
-    for (let index = 0; index < 22; index += 1) {
-      const angle = (Math.PI * 2 * index) / 22;
-      const dist = Phaser.Math.Between(80, 180);
-      const size = Phaser.Math.Between(2, 5);
-      const spark = this.add.circle(this.player.x, this.player.y, size, index % 2 === 0 ? color : 0xffffff)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      this.tweens.add({
-        targets: spark,
-        x: this.player.x + Math.cos(angle) * dist,
-        y: this.player.y + Math.sin(angle) * dist,
-        alpha: 0,
-        scale: 0.1,
-        duration: Phaser.Math.Between(280, 450),
-        ease: 'Cubic.out',
-        onComplete: () => spark.destroy()
-      });
-    }
+    // 22 片飞溅分两批交替配色；初速随机 + 阻力衰减，取代原先整齐的等角放射线
+    const sparkOpts = { speed: 2.6, life: 0.35, size: 0.125 } as const;
+    this.fx.burst(px, py, 256, 11, color, sparkOpts);
+    this.fx.burst(px, py, 256, 11, 0xffffff, sparkOpts);
   }
 
   private createExtractionZone(): void {

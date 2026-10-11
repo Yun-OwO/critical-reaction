@@ -61,11 +61,76 @@ export class BootScene extends Phaser.Scene {
     g.fillCircle(1, 1, 1);
     g.generateTexture('fog-p', 2, 2);
     g.destroy();
+    this.createFxTextures();
     // 等 overlay 淡出后再切场景
     this.time.delayedCall(800, () => {
       void loadProfileFromStorage().finally(() => {
         this.scene.start('LobbyScene');
       });
+    });
+  }
+
+  /**
+   * 粒子纹理：全部用 canvas 渐变烘焙柔边，尺寸刻意做小（10~48px）。
+   * 相比硬色块几何体，柔边在 ADD 混合下叠加不会出现方块接缝，
+   * 小尺寸则保证高密度爆发时单颗粒子不糊成一片。
+   * 纯白烘焙 —— 颜色由 FxPool 按调用 setTint，一套纹理覆盖全部配色。
+   */
+  private createFxTextures(): void {
+    const bake = (key: string, w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): void => {
+      if (this.textures.exists(key)) return;
+      const tex = this.textures.createCanvas(key, w, h);
+      if (!tex) return;
+      const ctx = tex.getContext();
+      ctx.clearRect(0, 0, w, h);
+      draw(ctx);
+      tex.refresh();
+    };
+
+    // 主力形状：核心亮、外围三段渐隐的软光点
+    bake('fx-spark', 12, 12, (ctx) => {
+      const grd = ctx.createRadialGradient(6, 6, 0, 6, 6, 6);
+      grd.addColorStop(0, 'rgba(255,255,255,1)');
+      grd.addColorStop(0.3, 'rgba(255,255,255,0.9)');
+      grd.addColorStop(0.62, 'rgba(255,255,255,0.32)');
+      grd.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, 12, 12);
+    });
+
+    // 更宽更淡的辉光：用于枪口、命中光晕等"照亮周围"的效果
+    bake('fx-glow', 24, 24, (ctx) => {
+      const grd = ctx.createRadialGradient(12, 12, 0, 12, 12, 12);
+      grd.addColorStop(0, 'rgba(255,255,255,0.85)');
+      grd.addColorStop(0.45, 'rgba(255,255,255,0.3)');
+      grd.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, 24, 24);
+    });
+
+    // 冲击环：细描边圆，放大淡出即成冲击波
+    bake('fx-ring', 48, 48, (ctx) => {
+      ctx.filter = 'blur(0.6px)';
+      ctx.strokeStyle = 'rgba(255,255,255,1)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(24, 24, 21, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.filter = 'none';
+    });
+
+    // 碎屑：带软边的小菱形，配合自旋读作"碎片飞溅"
+    bake('fx-shard', 10, 10, (ctx) => {
+      ctx.filter = 'blur(0.5px)';
+      ctx.fillStyle = 'rgba(255,255,255,1)';
+      ctx.beginPath();
+      ctx.moveTo(5, 0.6);
+      ctx.lineTo(9.4, 5);
+      ctx.lineTo(5, 9.4);
+      ctx.lineTo(0.6, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.filter = 'none';
     });
   }
 }

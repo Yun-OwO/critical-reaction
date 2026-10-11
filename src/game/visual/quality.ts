@@ -12,15 +12,17 @@ export interface VisualProfile {
   fogParticlesPerBand: number;
   fogParticlesPerMist: number;
   orbitSegments: number;
+  /** 特效粒子的同时存活硬上限（见 utils/Fx.ts），按设备能力分档。 */
+  maxParticles: number;
 }
 
 const STORAGE_KEY = 'critical-reaction-visual-quality';
 
 const PROFILES: Record<Exclude<VisualQuality, 'auto'>, VisualProfile> = {
   // 低质量（移动端/低端设备）：关闭 Bloom 后处理、单层光晕、粒子减半 —— 渲染开销优先
-  low: { glowLayers: 1, glowAlpha: 0.4, shadowAlpha: 0.18, particleScale: 0.55, ambientAlpha: 0.04, bloomEnabled: false, shadowsEnabled: true, fogParticlesPerSpot: 12, fogParticlesPerBand: 5, fogParticlesPerMist: 6, orbitSegments: 24 },
-  medium: { glowLayers: 3, glowAlpha: 0.7, shadowAlpha: 0.32, particleScale: 0.8, ambientAlpha: 0.07, bloomEnabled: true, shadowsEnabled: true, fogParticlesPerSpot: 24, fogParticlesPerBand: 9, fogParticlesPerMist: 10, orbitSegments: 36 },
-  high: { glowLayers: 4, glowAlpha: 1, shadowAlpha: 0.42, particleScale: 1, ambientAlpha: 0.1, bloomEnabled: true, shadowsEnabled: true, fogParticlesPerSpot: 38, fogParticlesPerBand: 14, fogParticlesPerMist: 16, orbitSegments: 48 }
+  low: { glowLayers: 1, glowAlpha: 0.4, shadowAlpha: 0.18, particleScale: 0.55, ambientAlpha: 0.04, bloomEnabled: false, shadowsEnabled: true, fogParticlesPerSpot: 12, fogParticlesPerBand: 5, fogParticlesPerMist: 6, orbitSegments: 24, maxParticles: 360 },
+  medium: { glowLayers: 3, glowAlpha: 0.7, shadowAlpha: 0.32, particleScale: 0.8, ambientAlpha: 0.07, bloomEnabled: true, shadowsEnabled: true, fogParticlesPerSpot: 24, fogParticlesPerBand: 9, fogParticlesPerMist: 10, orbitSegments: 36, maxParticles: 800 },
+  high: { glowLayers: 4, glowAlpha: 1, shadowAlpha: 0.42, particleScale: 1, ambientAlpha: 0.1, bloomEnabled: true, shadowsEnabled: true, fogParticlesPerSpot: 38, fogParticlesPerBand: 14, fogParticlesPerMist: 16, orbitSegments: 48, maxParticles: 1400 }
 };
 
 let selectedQuality: VisualQuality = 'auto';

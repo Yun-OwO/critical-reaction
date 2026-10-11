@@ -1,6 +1,6 @@
 /**
  * 音效节流器（借鉴卫戍协议 audio.js 的 SfxLimiter 四重闸）：
- * - 总并发上限（maxVoices 窗口内总播放数，v0.2.2 = 5）
+ * - 总并发上限（maxVoices 窗口内总播放数，当前 = 12）
  * - 单音源冷却（同一 key 两次播放最小间隔）
  * - 全局最小间隔（任意两声响之间）
  * - 单 key 叠音上限（同一音效窗口内最多同时几条）
@@ -22,7 +22,10 @@ export interface SfxLimiterOptions {
 }
 
 const DEFAULTS = {
-  maxVoices: 5,
+  // 总并发 12：原 5 在密集战斗（群体命中/连锁反应/拾取）下削音明显，
+  // 玩家反馈"音效糊掉"。抬到 12 保留打击感，其余三闸（单源冷却 / 全局间隔 / 叠音）不变，
+  // 防止同一声音被刷屏覆盖。
+  maxVoices: 12,
   perSourceCooldownMs: 160,
   minGapMs: 45,
   maxOverlapPerKey: 2,
