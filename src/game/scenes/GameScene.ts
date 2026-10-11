@@ -88,10 +88,18 @@ interface RuntimeEnemy {
   weaknessDyeId: string | null;
   /** 是否已死亡（防止同一帧内多次结算导致重复计数）。 */
   dead: boolean;
+  /** 伤害数字合并窗口：窗口内多跳累加成一条吐出（见 addDamageNumber）。 */
+  pendingDamageText: number;
+  damageTextColor: string;
+  /** 窗口关闭时刻（ms，this.time.now 基准）；0 = 当前无待吐出的累加。 */
+  damageTextFlushAt: number;
   /** 精英怪：金色标识环 + 属性强化（精英房专属）。 */
   isElite: boolean;
   eliteRing: Phaser.GameObjects.Rectangle | null;
 }
+
+/** 伤害数字合并窗口（ms）：窗口内对同一敌人的多跳伤害累加成一条浮字吐出。 */
+const DAMAGE_TEXT_WINDOW_MS = 110;
 
 interface RuntimeProjectile {
   view: Phaser.GameObjects.Shape;
@@ -1735,6 +1743,9 @@ export class GameScene extends Phaser.Scene {
       slowMult: 1,
       weaknessDyeId: this.getEnemyWeakness(kind),
       dead: false,
+      pendingDamageText: 0,
+      damageTextColor: '#FFFFFF',
+      damageTextFlushAt: 0,
       isElite,
       eliteRing
     });
@@ -4580,24 +4591,13 @@ export class GameScene extends Phaser.Scene {
     // 缩放冲击以当前基准为准（视图使用 setDisplaySize + idle 呼吸 tween，scale 不是 1）
     const baseScale = target.view.scale;
     this.tweens.add({ targets: target.view, scale: { from: baseScale * 1.14, to: baseScale }, duration: 140, ease: 'Cubic.out' });
-    const impact = this.add.circle(hitX, hitY, 10, 0xffffff, 0)
-      .setStrokeStyle(3, 0xffffff, 0.9)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.tweens.add({ targets: impact, scale: { from: 0.4, to: 2.2 }, alpha: 0, duration: 220, onComplete: () => impact.destroy() });
-    for (let index = 0; index < 6; index += 1) {
-      const spark = this.add.circle(hitX, hitY, 3, 0xfff7c2).setBlendMode(Phaser.BlendModes.ADD);
-      this.tweens.add({
-        targets: spark,
-        x: hitX + Phaser.Math.Between(-70, 70),
-        y: hitY + Phaser.Math.Between(-70, 70),
-        alpha: 0,
-        scale: 0.2,
-        duration: 240,
-        onComplete: () => spark.destroy()
-      });
-    }
-    this.showDamageNumber(hitX, hitY - 30, damage, mode === 'oxidized' ? '#FF8A4C' : mode === 'reduced' ? '#FDE047' : '#FFFFFF');
-    // 反馈分层：普通命中保持克制（短定格 + 极轻屏震），精英命中才升级
+    // 冲击环 + 6 颗溅射火花改走共享粒子池：原先是 7 个 Circle + 7 个 tween、播完
+    // 再 destroy。命中是全游戏最高频的路径（光束/弹体每 60ms 一跳、多目标叠加），
+    // 这里一省就是每秒上百个临时对象。视觉保持不变（半径 4→22px、火花散布 ≈70px）。
+    this.fx.ring(hitX, hitY, 4, 22, 0xffffff, 0.22, 0.9);
+    this.fx.burst(hitX, hitY, 240, 6, 0xfff7c2, { speed: 2.1, life: 0.24, size: 0.14 });
+    // 伤害浮字按敌人合并：光束多跳累加成一条，避免数字盖住战场
+    this.addDamageNumber(target, damage, mode === 'oxidized' ? '#FF8A4C' : mode === 'reduced' ? '#FDE047' : '#FFFFFF');    // 反馈分层：普通命中保持克制（短定格 + 极轻屏震），精英命中才升级
     this.applyFeedback(hitTierFor(false, target.isElite));
     // 音高抖动：连续命中不出现机械的同一音高
     this.playTone(pitchJitter(220), 0.06, 'square', 0.07);
@@ -4634,6 +4634,35 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => particle.destroy()
       });
     }
+  }
+
+  /**
+   * 记一笔伤害浮字，按敌人合并（Hades P0-4）。
+   *
+   * 激光每 60ms 一 tick、DoT 每 0.5s 一跳，各自出一条浮字会把战场盖住。
+   * 这里把 `DAMAGE_TEXT_WINDOW_MS` 窗口内的多次命中累加，窗口到点后由
+   * updateEnemies 统一吐出**一条**合计数字。
+   *
+   * 窗口从第一跳起定点开闭、不随后续跳延长 —— 否则持续光束会把数字永远拖着
+   * 不显示，反而更糟。`urgent`（击杀 / 破层 / 大额）先清空累加再立即单独出字。
+   */
+  private addDamageNumber(enemy: RuntimeEnemy, amount: number, color: string, urgent = false): void {
+    if (urgent) {
+      this.flushDamageNumber(enemy);
+      this.showDamageNumber(enemy.view.x, enemy.view.y - 30, amount, color);
+      return;
+    }
+    enemy.pendingDamageText += amount;
+    enemy.damageTextColor = color;   // 取最后一跳的颜色：与当前武器模式一致
+    if (enemy.damageTextFlushAt === 0) enemy.damageTextFlushAt = this.time.now + DAMAGE_TEXT_WINDOW_MS;
+  }
+
+  /** 吐出该敌人窗口内累加的伤害数字并复位（无累加时是空操作）。 */
+  private flushDamageNumber(enemy: RuntimeEnemy): void {
+    if (enemy.pendingDamageText <= 0) return;
+    this.showDamageNumber(enemy.view.x, enemy.view.y - 30, enemy.pendingDamageText, enemy.damageTextColor);
+    enemy.pendingDamageText = 0;
+    enemy.damageTextFlushAt = 0;
   }
 
   private showDamageNumber(x: number, y: number, amount: number, color: string): void {
@@ -4715,6 +4744,9 @@ export class GameScene extends Phaser.Scene {
 
   private updateEnemies(delta: number): void {
     this.enemies.forEach((enemy) => {
+      // 到点的合并伤害数字先吐：必须放在僵直 / 不可见的早退之前，
+      // 否则被僵直或正在消失的敌人会把累加的数字永久吞掉
+      if (enemy.damageTextFlushAt > 0 && this.time.now >= enemy.damageTextFlushAt) this.flushDamageNumber(enemy);
       if (!enemy.view.visible) return;
       if (enemy.stunTimer > 0) {
         enemy.stunTimer -= delta;
@@ -4741,7 +4773,7 @@ export class GameScene extends Phaser.Scene {
         if (enemy.dotTick <= 0) {
           enemy.dotTick = 0.5;
           this.damageEnemy(enemy, enemy.dotDamage);
-          this.showDamageNumber(enemy.view.x, enemy.view.y - 30, enemy.dotDamage, `#${enemy.dotColor.toString(16).padStart(6, '0')}`);
+          this.addDamageNumber(enemy, enemy.dotDamage, `#${enemy.dotColor.toString(16).padStart(6, '0')}`);
           const burn = this.add.circle(enemy.view.x, enemy.view.y, 20, enemy.dotColor, 0.35)
             .setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
           this.tweens.add({ targets: burn, scale: 2, alpha: 0, duration: 300, onComplete: () => burn.destroy() });
@@ -5397,6 +5429,8 @@ export class GameScene extends Phaser.Scene {
   private killEnemy(target: RuntimeEnemy, x: number, y: number): void {
     if (target.dead) return;
     target.dead = true;
+    // 击杀前把窗口内累加的伤害数字吐出来，否则最后一段伤害会随敌人消失而丢失
+    this.flushDamageNumber(target);
     target.layerPips.forEach((pip) => pip.destroy());
     target.eliteRing?.destroy();
     target.eliteRing = null;
