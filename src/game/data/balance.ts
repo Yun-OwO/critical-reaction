@@ -188,6 +188,50 @@ export const BALANCE = {
   /** 祝福池局内禁用（卫戍协议「每局随机禁用盟约」）：强制每局换 build、防背版 */
   upgrades: {
     runDisabledCount: 2
+  },
+  /**
+   * 局内经济：催化券（局内货币）与诡商货架。
+   *
+   * 定价全部取 5 的倍数是**硬约束**（`priceAnchor`），抄 Hades 的可预期性：
+   * Charon 的 150 Obols 之所以让人敢花钱，就是因为玩家能心算「还差多少」。
+   * `validateBalance` 会断言这条规则，改价时手滑成 23 会被单测拦下。
+   */
+  economy2: {
+    /** 所有定价必须是这个数的倍数 */
+    priceAnchor: 5,
+    /** 诡商货架格数 */
+    shopSlots: 4,
+    /** 每层必出的「提纯台」保底稀有 */
+    guaranteedRarePerLayer: 1,
+    /** 货架类型开放的层数门槛 */
+    gearFromLayer: 1,
+    dyeFromLayer: 2,
+    evolutionFromLayer: 3,
+    /** 战斗房清空的基础券奖励 */
+    couponsPerRoom: 8,
+    /** 按房间深度的递增（每深入一间） */
+    couponsPerDepth: 2,
+    /** 精英房倍数 */
+    eliteMultiplier: 2,
+    /** 宝箱奖励 */
+    couponsPerChest: 20,
+    /** 结算折算：撤离成功时 1 券 = N 样本 */
+    couponToSample: 0.5,
+    /**
+     * 定向投资（对标集成战略「前瞻性投资」）：
+     * 每次 1 券 → 投资储备余额 +1，余额**跨局继承**，用于解锁色谱图鉴。
+     */
+    investUnit: 1,
+    investReserveCap: 120,
+    /** 货架商品定价（按 kind 分档） */
+    prices: {
+      supply: 25,
+      gearCommon: 40,
+      gearRare: 75,
+      gearEpic: 120,
+      dye: 25,
+      evolution: 30
+    }
   }
 } as const;
 
@@ -216,5 +260,18 @@ export function validateBalance(): string[] {
   if (BALANCE.economy.weaponUpgradeCosts[1] <= BALANCE.economy.weaponUpgradeCosts[0]) {
     issues.push('武器升级花费必须递增');
   }
+  // 定价锚点：Hades 的可预期性来自「玩家能心算」，定价一旦出现零头就废掉这个前提
+  const e2 = BALANCE.economy2;
+  if (e2.priceAnchor <= 0) issues.push('定价锚点必须为正');
+  for (const [key, price] of Object.entries(e2.prices)) {
+    if (price % e2.priceAnchor !== 0) {
+      issues.push(`诡商定价 ${key}=${price} 不是 ${e2.priceAnchor} 的倍数（会破坏可心算性）`);
+    }
+  }
+  if (e2.shopSlots < e2.guaranteedRarePerLayer) {
+    issues.push('货架格数必须 ≥ 保底稀有数，否则「每层必有提纯台」无法兑现');
+  }
+  if (e2.couponToSample <= 0) issues.push('催化券折算率必须为正');
+  if (e2.investReserveCap <= 0) issues.push('投资储备上限必须为正');
   return issues;
 }
