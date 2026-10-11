@@ -6816,10 +6816,15 @@ export class GameScene extends Phaser.Scene {
     const obstacles = this.physics.add.staticGroup();
     for (const blk of terrain.blocks) {
       if (!blk.collidable) continue;
-      const body = obstacles.create(blk.x, blk.y + blk.h / 2, 'biome-tloor');
+      // 对齐棱柱的**地面投影菱形**：菱形中心就是格心 (blk.x, blk.y)。
+      // 原实现写成 blk.y + blk.h/2（菱形前顶点），整块碰撞盒下沉半格 ——
+      // 结果菱形上半 33px 没有碰撞（能直接穿到棱柱背后），
+      // 下半反而多出 15px 幻影墙。
+      const body = obstacles.create(blk.x, blk.y, 'biome-tloor');
       body.setVisible(false);
-      // 底座碰撞盒 = 棱柱底边区域（略窄于视觉，留出贴边走位）
-      body.setDisplaySize(72, 30);
+      // 尺寸取菱形的最大内接轴对齐矩形（w/2 × h/2，四角恰好落在菱形边上）：
+      // 既贴合底面轮廓、又不在斜向通道上产生"空气墙"
+      body.setDisplaySize(blk.w / 2, blk.h / 2);
       body.refreshBody();
     }
     // 碰撞器**不在这里注册**：本方法在 GameScene.create() 里先于玩家物理体执行
