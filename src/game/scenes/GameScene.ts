@@ -8,6 +8,7 @@ import { COMBAT_POOL, EXTRACTION_DEFS, ROOM_THEMES, buildComposition, generateRo
 import type { EnemyKind, ExtractionDef, InstrumentOffer, RoomDef, RoomEnemyDef, RoomReward, RoomType } from '../data/rooms';
 import { availableEvents, optionAvailable, rollEvent, type EventContext, type EventDef, type EventOption, type EventOutcome } from '../data/events';
 import { canSpend, couponsForChest, couponsForRoom, rollShop, settleCoupons, spendCoupons, type ShopSlot } from '../data/shop';
+import { computeEvolutionStats, describeEvolution, NEUTRAL_EVOLUTION_STATS, type EvolutionStats } from '../data/evolution';
 
 /**
  * 诡商摊位（局内商店）。
@@ -637,13 +638,16 @@ export class GameScene extends Phaser.Scene {
           ${row('价电子', `${gameState.valence} / ${gameState.maxValence}（氧化态 ${gameState.oxidationState}）`)}
           ${row('电子HP', `${Math.max(0, Math.ceil(gameState.ehp))} / ${gameState.ehpMax}${gameState.shieldHp > 0 ? `（护盾 ${Math.ceil(gameState.shieldHp)}）` : ''}`)}
           ${row('自由电子', `${gameState.freeElectrons} / ${gameState.maxFreeElectrons}${st.overloaded ? ' · 过载中！' : ''}`)}
-          ${row('伤害倍率', `×${(st.damageMult * this.gearDamageMult * this.weaponMods.damageMult).toFixed(2)}`)}
+          ${row('伤害倍率', `×${(st.damageMult * this.evolutionStats.damageMult * this.gearDamageMult * this.weaponMods.damageMult).toFixed(2)}`)}
           ${row('电子压制', `×${pressure.toFixed(2)}（伤害%已转译）`)}
           ${row('催化层数', gameState.reactionLayers + ' / ' + BALANCE.reaction.layerCap + '（伤害 +' + (BALANCE.reaction.damagePerLayer * gameState.reactionLayers * 100).toFixed(1) + '%）')}
+          ${this.evolutionStats.filledSlots > 0
+            ? row('染色进化', describeEvolution(this.evolutionStats) + `（${this.evolutionStats.filledSlots} 槽）`)
+            : row('染色进化', '未进化 · 注入染料后按混合色推导')}
           <h2>机动与节奏</h2>
           ${row('移速加成', `+${moveBonus}%${load.band.speedMult < 1 ? `（负载 -${Math.round((1 - load.band.speedMult) * 100)}%）` : ''}`)}
           ${row('冷却缩减', `${cdRed}%`)}
-          ${row('暴击率', `${critPct}%`)}
+          ${row('暴击率', `${(critPct + this.evolutionStats.critRateBonus * 100).toFixed(0)}%${this.evolutionStats.critRateBonus > 0.005 ? `（进化 +${(this.evolutionStats.critRateBonus * 100).toFixed(0)}%）` : ''}`)}
           ${row('负载', `${load.percent}% · ${load.band.label}`)}
           ${row('温度', `${Math.round(gameState.temperature)}° · ${tempState}`)}
         </div>
@@ -992,10 +996,13 @@ export class GameScene extends Phaser.Scene {
       getWeaponForm(gameState.currentWeapon),
       loadRatio
     );
+    // 进化系统（colorist 血统，S1.4）：按当前染色槽的混合色重算属性修正。
+    // 与 dyeEvolution 是两条独立的线（见 docs/roadmap-v2.md §1.2），这里是乘区叠加。
+    // 只在槽位变化时重算，避免每帧做颜色混合。
+    this.refreshEvolutionStats();
     // 形态自损（居里 / 核素）：把"高输出"的代价做成持续压力，而不是一次性数值
     if (this.weaponMods.selfDamagePerSec > 0) {
-      this.formSelfDamageTimer += dt;
-      if (overloadTick(this.formSelfDamageTimer)) {
+      this.formSelfDamageTimer += dt;      if (overloadTick(this.formSelfDamageTimer)) {
         this.formSelfDamageTimer -= 1;
         const self = this.weaponMods.selfDamagePerSec;
         gameState.ehp = Math.max(0, gameState.ehp - self);
@@ -1195,7 +1202,10 @@ export class GameScene extends Phaser.Scene {
     if (inCombat) {
       const heatBoon = this.boonHeatReduction; // 散热涂层：升温速率降低 %
       // §7 本生灯形态：放热 +50%（伤害换温度压力）
-      const rise = (dt * BALANCE.temperature.riseHeatScale * heatRatio + dt * BALANCE.temperature.riseBase) * (1 - heatBoon / 100) * this.weaponMods.heatMult;
+      // 苍蓝通道（进化 S1.4）：控温 —— 升温速率降低，让"堆蓝"成为一种真实的降温路线，
+      // 而不是只能靠还原注入
+      const rise = (dt * BALANCE.temperature.riseHeatScale * heatRatio + dt * BALANCE.temperature.riseBase)
+        * (1 - heatBoon / 100) * this.weaponMods.heatMult * this.evolutionStats.heatMult;
       gameState.temperature = Math.min(100, gameState.temperature + rise);
     } // 自然散热已移除（v0.2.2）：温度只升不降——还原注入/里程碑/水池是唯一降温手段
     // 高温危险脉冲：单一常驻圆做程序化脉动（此前每帧新建圆+补间，60 个/秒叠加成红色残影涂抹）
@@ -1367,6 +1377,40 @@ export class GameScene extends Phaser.Scene {
   private runDamageBonus = 0;
   /** 下一战敌人血量倍率（事件给的，如「样本盗窃」+15%），开一波后归位。 */
   private nextCombatHpMult = 1;
+
+  /**
+   * 进化属性修正（colorist 血统的 S1.4 接入）。
+   * 输入是本次染色槽的染料 id 组合，输出是伤害/暴击/暴伤/升温四个乘区。
+   * 与 dyeEvolution（喂同一种染料升级）是两条线，见 docs/roadmap-v2.md §1.2。
+   */
+  private evolutionStats: EvolutionStats = NEUTRAL_EVOLUTION_STATS;
+  /** 上一次参与计算的槽位签名，用于跳过无变化的帧。 */
+  private evolutionSignature = '';
+
+  /**
+   * 染色槽变化时重算进化属性。
+   *
+   * 进化系统有个只有接线后才暴露的问题：**属性必须能被看见**。
+   * 玩家往槽里注了一瓶试剂，如果界面上没有任何数字变化，这个系统就等于不存在。
+   * 所以这里在属性真正变化时打一条浮字（而不是每帧刷屏）。
+   */
+  private refreshEvolutionStats(): void {
+    const sig = gameState.dyeSlots.map((s) => s.dyeId ?? '-').join(',');
+    if (sig === this.evolutionSignature) return;
+    const prev = this.evolutionStats;
+    this.evolutionStats = computeEvolutionStats(gameState.dyeSlots.map((s) => s.dyeId));
+    this.evolutionSignature = sig;
+    // 只在"真的进化了"时提示；空槽保持沉默
+    if (this.evolutionStats.filledSlots > 0) {
+      const lines = describeEvolution(this.evolutionStats);
+      const changed = prev.filledSlots === 0
+        || Math.abs(prev.damageMult - this.evolutionStats.damageMult) > 0.005
+        || Math.abs(prev.hpMult - this.evolutionStats.hpMult) > 0.005;
+      if (changed) {
+        this.showFloatingText(this.player.x, this.player.y - 150, `进化 · ${lines}`, '#67E8F9');
+      }
+    }
+  }
 
   /** 电子转移累积催化层数：999 封顶，里程碑按序领取并结算奖励。 */
   private gainReactionLayers(gain: number): void {
@@ -2495,7 +2539,7 @@ export class GameScene extends Phaser.Scene {
     // 压制软上限：所有加成叠加后不超过 MAX_PRESSURE_BONUS（v0.2.2：+N 颗不再线性爆炸）
     const clampPressure = (value: number): number => Math.min(GameScene.MAX_PRESSURE_BONUS, value);
     const evolutionLevels = Object.values(gameState.dyeEvolution ?? {}).reduce((sum, v) => sum + v, 0);
-    const mult = this.electronState.damageMult * this.gearDamageMult * w.damageMult
+    const mult = this.electronState.damageMult * this.evolutionStats.damageMult * this.gearDamageMult * w.damageMult
       * (1 + evolutionLevels * 0.01)
       * (1 + this.runDamageBonus)          // 事件给的本局加成（如「以身试药」）
       * this.reactionDamageMult()
@@ -5645,7 +5689,8 @@ export class GameScene extends Phaser.Scene {
     // 全部 N 颗电子成对抵消后，死亡判定
     if (orbit.count <= 0) this.breakLayerOrKill(target);
     // 暴击判定（活性位点 + 遗物「量子共振器」）
-    const isCrit = Math.random() < (this.boonCritChanceVal + this.relicCritChance / 100);
+    // 进化的暴击率加成（S1.4）：纯度越高暴击率越高，与活性位点/遗物加算
+    const isCrit = Math.random() < (this.boonCritChanceVal + this.relicCritChance / 100 + this.evolutionStats.critRateBonus);
     const critExtra = isCrit ? this.boonCritBonus : 0;    // 祝福额外夺取：过载打击/链式反应/玻璃大炮 + 共振冲刺倍率
     const extraHits = Math.floor((this.boonExtraElectronOxidize + this.relicOxidizeBonus / 10 + critExtra) * this.electronMult);
     for (let i = 0; i < extraHits && orbit.count > 0; i++) {
