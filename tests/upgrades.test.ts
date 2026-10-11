@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOON_POOL, formatBoonDesc, getBoonDef } from '../src/game/data/upgrades';
+import { BOON_POOL, formatBoonDesc, getBoonDef, pickBoons } from '../src/game/data/upgrades';
 
 /**
  * 祝福描述按「当前手持武器」分类展示。
@@ -52,5 +52,50 @@ describe('祝福描述（按武器分类展示）', () => {
     const text = formatBoonDesc(boon, 'melee');
     expect(text).toContain(String(v));
     expect(text).not.toContain('{n}');
+  });
+});
+
+/**
+ * 抽卡多样性。
+ *
+ * pickBoons 的注释长期声称「优先覆盖不同槽位，其次不同学派」，但 usedSchools
+ * 只被 add、从不用于筛选 —— 三张卡经常同属一个学派，四大化学学派的主题感会崩。
+ * 这里锁住两件事：槽位不重复是硬约束，学派撞车率必须压到接近 0。
+ */
+describe('抽卡多样性', () => {
+  /** 确定性 LCG，避免用 Math.random 让测试偶发失败。 */
+  const lcg = (seed: number): (() => number) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+  };
+
+  it('每轮 3 张卡 id 互不相同、槽位互不相同', () => {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const picks = pickBoons(3, lcg(seed));
+      expect(picks).toHaveLength(3);
+      expect(new Set(picks.map((b) => b.id)).size, `seed=${seed} id`).toBe(3);
+      expect(new Set(picks.map((b) => b.slot)).size, `seed=${seed} slot`).toBe(3);
+    }
+  });
+
+  it('学派撞车率接近 0（旧实现在此处约为 60%）', () => {
+    let collide = 0;
+    const rounds = 300;
+    for (let seed = 1; seed <= rounds; seed += 1) {
+      const picks = pickBoons(3, lcg(seed));
+      if (new Set(picks.map((b) => b.school)).size < 3) collide += 1;
+    }
+    expect(collide / rounds).toBeLessThan(0.05);
+  });
+
+  it('exclude 排除后仍返回不重复且数量正确', () => {
+    const first = pickBoons(3, lcg(7));
+    const second = pickBoons(3, lcg(7), new Set(first.map((b) => b.id)));
+    expect(second).toHaveLength(3);
+    expect(new Set(second.map((b) => b.id)).size).toBe(3);
+    for (const b of second) expect(first.some((f) => f.id === b.id)).toBe(false);
   });
 });

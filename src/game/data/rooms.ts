@@ -349,11 +349,19 @@ export function generateRoomDoors(room: RoomDef, rng: () => number = Math.random
   }
 
   // 普通：3 扇门（含精英房/事件房/染料房）
+  // **加权去重抽样**：同一类型最多出一次，三扇门必然互不相同。
+  // 原先独立随机抽 3 次，实测会出现三扇门全是战斗房 —— 玩家面对的是同一个选项
+  // 三次，"选门"形同虚设。权重表本身不动（战斗房仍是最高频的门），重复项即权重：
+  // 战斗 3/9，宝藏/商店/事件/精英/染料各 1/9，事件房 1/9、池房 1/9。
+  const bag: RoomType[] = ['combat', 'combat', 'combat', 'treasure', 'shop', 'pool', 'elite', 'event', 'dye'];
   const doors: RoomDef[] = [];
-  const types: RoomType[] = ['combat', 'combat', 'combat', 'treasure', 'shop', 'pool', 'elite', 'event', 'dye'];
-  for (let i = 0; i < 3; i++) {
-    const t = types[Math.floor(rng() * types.length)];
-    doors.push(createRoom(t, room.depth + 1, room.layer, rng));
+  for (let i = 0; i < 3 && bag.length > 0; i += 1) {
+    const idx = Math.floor(rng() * bag.length);
+    const type = bag[idx];
+    doors.push(createRoom(type, room.depth + 1, room.layer, rng));
+    // 权重袋里同类型有多个副本，只 splice 一个下标是去不了重的
+    // （副本相邻时会连着抽中同一个类型）——必须把该类型整组移出。
+    for (let k = bag.length - 1; k >= 0; k -= 1) if (bag[k] === type) bag.splice(k, 1);
   }
   return doors;
 }

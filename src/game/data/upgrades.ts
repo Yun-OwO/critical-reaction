@@ -272,12 +272,19 @@ export function pickBoons(
   const usedSlots = new Set<BoonSlot>();
   const usedSchools = new Set<ElementSchool>();
 
-  // 第一轮：优先选不同槽位
+  // 第一轮：优先选不同槽位 —— 且**在满足槽位不重复的前提下**尽量也不撞学派。
+  // 三级候选收敛，每级都是上一级的超集，因此"槽位优先"的原语义不被削弱：
+  //   ① 槽位+学派都未用（最佳） ② 槽位未用（保住槽位多样性） ③ 学派未用 ④ 兜底
+  // 此前只记 usedSchools 却从不用于筛选，三张卡常常同属一个学派，
+  // "四大化学学派"的主题感会直接崩塌。
   for (let i = 0; i < count && pool.length > 0; i += 1) {
-    const unbuilt = pool.filter((b) => !usedSlots.has(b.slot));
-    const candidates = unbuilt.length > 0 ? unbuilt : pool;
-    const idx = Math.floor(rng() * candidates.length);
-    const picked = candidates[idx];
+    const candidates =
+      pool.filter((b) => !usedSlots.has(b.slot) && !usedSchools.has(b.school));
+    const bySlot = candidates.length > 0 ? candidates : pool.filter((b) => !usedSlots.has(b.slot));
+    const bySchool = bySlot.length > 0 ? bySlot : pool.filter((b) => !usedSchools.has(b.school));
+    const list = bySchool.length > 0 ? bySchool : pool;
+    const idx = Math.floor(rng() * list.length);
+    const picked = list[idx];
     result.push(picked);
     usedSlots.add(picked.slot);
     usedSchools.add(picked.school);

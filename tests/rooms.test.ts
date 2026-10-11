@@ -206,11 +206,22 @@ describe('rooms 房间链生成', () => {
 
   it('普通房门池可产出精英房与事件房', () => {
     const room = createRoom('combat', 1, 0);
+    // 门类型现在**加权去重**（三扇门必然互不相同），故只断言"抽得到"而非"全是"。
     const eliteDoors = generateRoomDoors(room, () => 0.7);
-    expect(eliteDoors.every((d) => d.type === 'elite')).toBe(true);
+    expect(eliteDoors.map((d) => d.type)).toContain('elite');
     const eventDoors = generateRoomDoors(room, () => 0.8);
-    expect(eventDoors.every((d) => d.type === 'event')).toBe(true);
-    expect(eventDoors.every((d) => d.instrument !== null)).toBe(true);
+    expect(eventDoors.map((d) => d.type)).toContain('event');
+    expect(eventDoors.filter((d) => d.type === 'event').every((d) => d.instrument !== null)).toBe(true);
+  });
+
+  it('普通房三扇门类型互不相同', () => {
+    const room = createRoom('combat', 1, 0);
+    // 常量 rng 会让旧的"独立抽 3 次"实现给出三扇同类型门，是这条断言的直接回归靶
+    for (const r of [0, 0.3, 0.7, 0.9]) {
+      const doors = generateRoomDoors(room, () => r);
+      expect(doors).toHaveLength(3);
+      expect(new Set(doors.map((d) => d.type)).size).toBe(3);
+    }
   });
 
   it('ROOM_THEMES 覆盖精英房与事件房', () => {
@@ -243,8 +254,8 @@ describe('rooms 房间链生成', () => {
   it('普通房门池可产出染料房', () => {
     const room = createRoom('combat', 1, 0);
     const dyeDoors = generateRoomDoors(room, () => 0.9);
-    expect(dyeDoors.every((d) => d.type === 'dye')).toBe(true);
-    expect(dyeDoors.every((d) => d.dye !== null)).toBe(true);
+    expect(dyeDoors.map((d) => d.type)).toContain('dye');
+    expect(dyeDoors.filter((d) => d.type === 'dye').every((d) => d.dye !== null)).toBe(true);
   });
 
   it('ROOM_THEMES 覆盖染料房', () => {
