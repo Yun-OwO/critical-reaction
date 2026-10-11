@@ -350,6 +350,8 @@ export class GameScene extends Phaser.Scene {
   private dashNextReadyTimer = 0;
   private dashWindowTimer = 0;
   private dashMotionTimer = 0;
+  /** 受伤后的无敌窗口剩余时间（秒），见 BALANCE.player.hurtIFrameSeconds */
+  private playerHurtIFrameTimer = 0;
   private playerDying = false;
   private playerOrbitState: OrbitVisualState = 'idle';
   private playerOrbitTimer = 0;
@@ -881,6 +883,14 @@ export class GameScene extends Phaser.Scene {
       this.playerBody.setAcceleration(0, 0);
       return;
     }
+    // 祝福选择期间冻结战斗分支（粒子、引导仍在上面推进）：
+    // 选择不一定发生在"房间已彻底清空"——Boss 房的觉醒祝福、撤离前的空档都会撞上
+    // updateExtraction 每 3s 生成的追击者，玩家正读着三张卡却在挨打。
+    // 连带把过载自损、DoT、温度一并停住：读卡的时间不该计入生存成本。
+    if (this.upgradeSelectionActive) {
+      this.playerBody.setAcceleration(0, 0);
+      return;
+    }
     const dt = delta / 1000;    // 命中定格：命中瞬间短暂冻结世界，强化打击感
     // 新手引导：条件轮询 + 高亮动画（放在定格早退之前，冻结期间引导仍可见）
     this.tutorial?.update(dt);
@@ -993,6 +1003,7 @@ export class GameScene extends Phaser.Scene {
     this.dashNextReadyTimer = Math.max(0, this.dashNextReadyTimer - dt);
     this.dashWindowTimer = Math.max(0, this.dashWindowTimer - dt);
     this.dashMotionTimer = Math.max(0, this.dashMotionTimer - dt);
+    this.playerHurtIFrameTimer = Math.max(0, this.playerHurtIFrameTimer - dt);
     const BASE_MAX_VEL = BALANCE.player.maxVelocity;
     // 移速加成（黄染/降低活化能/电子加速器/氧化态）与 §4.3 负载同时作用于最大速度与加速度
     const maxVel = Math.round(BASE_MAX_VEL * (1 + speedBoon / 100) * loadMult);
@@ -5406,6 +5417,11 @@ export class GameScene extends Phaser.Scene {
 
   private damagePlayer(): void {
     if (this.playerDying) return;
+    // 冲刺全程无敌：本作主输出是 360° 近战挥斩，玩家必须贴脸；没有切入资本时
+    // "靠近"是纯亏的。此处免疫来自敌人、弹幕、陷阱的全部伤害。
+    if (this.dashMotionTimer > 0) return;
+    // 受伤后的短暂无敌：挡住贴身连击的逐次结算与反馈轰炸，给玩家一个能退出来的空档
+    if (this.playerHurtIFrameTimer > 0) return;
     hapticHurt();
     // 温度档位（设计文档 §6.1）：过热(60-80)敌人伤害 +10%，临界(80+) +20%
     const heatDmgMult = gameState.temperature >= 80 ? 1.2 : gameState.temperature >= 60 ? 1.1 : 1;
@@ -5426,6 +5442,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.applyFeedback('playerHurt');
+    this.playerHurtIFrameTimer = BALANCE.player.hurtIFrameSeconds;
     // 受击形变：向内挤压一下，配合屏震把"被打到"的信息做实
     this.playPlayerSquash(0.16, 0.2);
     this.playTone(pitchJitter(180), 0.1, 'square', 0.08);

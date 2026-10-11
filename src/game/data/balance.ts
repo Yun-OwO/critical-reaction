@@ -16,6 +16,12 @@ export const BALANCE = {
     /** 最大速度（px/s）：基础 440 + 15% 机动性 */
     maxVelocity: 506,
     /**
+     * 受伤后的无敌窗口（秒）。多个近战怪同时贴身时，逐 hit 都跑一遍
+     * playerHurt 档反馈（hitStop + 屏震）会把画面糊掉；与冲刺全程无敌
+     * （dash.motionSeconds 内免疫）构成 Hades 式的双保险。
+     */
+    hurtIFrameSeconds: 0.7,
+    /**
      * 高速反向时的加速度保留系数（<1 会降低加速度）。
      * 曾取 0.8 用于抑制反向飘移，但实测让转向明显发钝（"很重"），
      * 故放开为 1.0：转向灵敏度优先，飘移由下面的 drag 收敛。
