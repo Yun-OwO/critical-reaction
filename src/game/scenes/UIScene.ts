@@ -93,6 +93,10 @@ export class UIScene extends Phaser.Scene {
   // ---- 全屏层 ----
   private vignette!: Phaser.GameObjects.Image;
   private dangerVignette!: Phaser.GameObjects.Image;
+  /** 受伤红闪：剩余秒数 / 总时长 / 峰值 alpha，见 flashDamage()。 */
+  private hurtFlashTimer = 0;
+  private readonly hurtFlashSeconds = 0.7;
+  private readonly hurtFlashPeak = 0.65;
   private indicatorGfx!: Phaser.GameObjects.Graphics;
   private touchControls: Phaser.GameObjects.GameObject[] = [];
   private unlisten: Array<() => void> = [];
@@ -376,6 +380,8 @@ export class UIScene extends Phaser.Scene {
   public update(_time: number, delta: number): void {
     // 轨道自转用真实时间推进（秒），与帧率解耦
     this.refreshElectronCore(Math.min(delta, 50) / 1000);
+    // 受伤红闪衰减：同样按帧上限 50ms 推进，切走再回来不会一次性闪完
+    if (this.hurtFlashTimer > 0) this.hurtFlashTimer = Math.max(0, this.hurtFlashTimer - Math.min(delta, 50) / 1000);
     this.refresh();
     this.refreshBossBar();
     this.refreshDangerVignette();
@@ -553,8 +559,24 @@ export class UIScene extends Phaser.Scene {
     const lowHpPulse = lowHp * (0.35 + 0.3 * Math.sin(this.time.now * 0.008));
     const heat = Phaser.Math.Clamp((gameState.temperature - 60) / 40, 0, 1);
     const heatPulse = heat * (0.3 + 0.25 * Math.sin(this.time.now * (gameState.temperature >= 95 ? 0.016 : 0.006)));
-    const alpha = Math.max(lowHpPulse, heatPulse);
+    // 受伤红闪：一次性脉冲，与"持续性"的低血/高温红晕走同一条视觉语言（屏幕边缘泛红），
+    // 所以直接叠在同一个 vignette 上，不另建贴图、不另加对象。
+    const hurt = this.hurtFlashTimer > 0
+      ? this.hurtFlashPeak * (this.hurtFlashTimer / this.hurtFlashSeconds)
+      : 0;
+    const alpha = Math.max(lowHpPulse, heatPulse, hurt);
     this.dangerVignette.setAlpha(alpha);
+  }
+
+  /**
+   * 受伤红闪（Hades 复盘 P1-5）：伤害真正落地时由 GameScene 调用，把危险 vignette
+   * 抬到峰值后线性衰减 0.7s。原先受击只在角色脚下有白闪 + 屏震 + 音效，屏幕级的
+   * "我掉血了"在混战里很容易被粒子和伤害数字盖过去。
+   */
+  public flashDamage(seconds = 0.7): void {
+    // 取更长者而非直接覆盖：衰减中途被再次命中时不要把红闪截断回更低的值。
+    // 无敌帧 0.7s 意味着正常情况下不会连闪，但 DoT 与陷阱不走无敌帧结算窗口之外的情况仍在。
+    this.hurtFlashTimer = Math.max(this.hurtFlashTimer, Phaser.Math.Clamp(seconds, 0, this.hurtFlashSeconds));
   }
 
   /** 屏幕外单位指示：敌人(红三角)/Boss(紫大三角)/出口门(主题色菱形)。 */

@@ -349,7 +349,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-2** | **化学组合祝福（Duo 等价物）**：新增 6–8 个「A 学派 + B 学派 → 反应」的组合祝福，`requires: string[]` 前置（如 `['h-atk-overload','o-atk-ignite']` → 「燃烧链式反应」）；两个前置都持有才进卡池 | Hades 的 Duo boons 要求两个神各出一个核心，玩家会**为拿 Duo 而有意识地先凑组合**——这是「规划感」的唯一来源。化学主题天然支持这个逻辑，比 Hades 更自洽 | `upgrades.ts` 新增 `DUO_POOL` + `requires`；`GameScene.ts` `rollBoonChoices`(2102) 加前置判定 | **中** |
 | 🟡 **P1-3** | **普通房 3 扇门去重 + 加权**：确保三扇门类型互不相同；给 `combat` 降权、`shop/treasure/event` 提权，并对 `extraction` 做条件门控 | Hades 的三扇门给你三种不同的理由，当前实现（`rooms.ts:352-357`）独立随机抽 3 次，可能三扇都是战斗房 | `rooms.ts` `generateRoomDoors`(318)；单测 `tests/rooms.test.ts` 补断言 | **小** |
 | **P1-4** | **跨局容错（God Mode 等价物）**：新增「稳定度」档案值，每次死亡 +1，提供可开关的减伤（如 每点 -1.5%，封顶 30%），设置里明码显示当前值与效果；做成**显式可关** | Hades God Mode：20% 起、每次死亡 +2%、封顶 80%，可随时开关无惩罚。精髓是**把「死了 N 次」显式结算成玩家可见的数值**。本项目的反应催化（`GameState.ts:77-78`）是同构机制但是局内的，死亡清零 | `ProfileState.ts`(24-65)；`SettingsState.ts`；`GameScene.ts` `damagePlayer`(5390) / `playerDeath`(5483) | **小** |
-| **P1-5** | **受伤后的屏幕边缘红闪**：`damagePlayer` 触发一次红色 vignette 脉冲（复用 `UIScene.refreshDangerVignette` 的常驻对象，做一次性强度叠加而非新建） | Hades 受伤时有明确的屏幕边缘红闪。本项目 `dangerVignette` 已是常驻对象（`UIScene.ts:94-95`），只需加一次脉冲请求——**零新增对象**，与 P0-1 同向 | `UIScene.ts` `refreshDangerVignette`(550)；EventBus 加 `damage` 强度参数 | **小** |
+| ✅ **P1-5** | **受伤后的屏幕边缘红闪**：复用 `UIScene.refreshDangerVignette` 的常驻 `dangerVignette`，加一次性 `hurtFlashTimer` 项并取 max 叠加，衰减 0.7s | Hades 受伤时有明确的屏幕边缘红闪。本项目 `dangerVignette` 已是常驻对象，只需加一次脉冲请求——**零新增对象** | `UIScene.ts` `refreshDangerVignette` / `GameScene.ts` `damagePlayer` | **小** |
 | **P1-6** | **命中白闪改为「描边提亮 + 短促形变」**：弃用 ADD 白圆（`4520-4523`），改为敌人描边色 `lerp` 到白 + `scale` 短促脉冲（已有 `baseScale * 1.14 → baseScale` 的 tween 可直接复用） | 代码自己在 `4666` 已发现「ADD 混合下 setTint 几乎不可见」。对「深色底 + 明亮描边」风格，ADD 白圆会把描边洗掉，命中瞬间目标反而更难看清 | `GameScene.ts` `registerHit`(4507) / `damageEnemy`(5321) | **小** |
 | **P1-7** | **房间清空的节奏断点**：清空瞬间触发 BGM 层次切换（BgmManager 已有状态派生选曲）+ 祝福光团落地时的低频冲击音 + 门开启的机械音 | Hades 在清空节点有明显的节奏转换（战斗音乐退潮 + 奖励落地声）。本项目 `onRoomCleared`(1948-1978) 只有一声 ding + banner，400ms 后光团静默出现 | `GameScene.ts` `onRoomCleared`(1948) / `spawnBoonPickup`(2946)；`BgmManager.ts` | **小** |
 | **P1-8** | **熔毁倒计时 HUD 读秒**：温度 ≥95 时在 HUD 常驻显示剩余秒数（复用 `setTextSafe` 脏检查），并在最后 3s 加速脉冲 | 「可预期」硬要求。当前只有一条浮字（`1129`），玩家必须盯着才知道什么时候炸。过载的 2.5s 宽限期（`885-898`）是正确的正面模板 | `UIScene.ts` `refresh`(404)；`GameScene.ts` `meltdownTimer`(632) 暴露到 GameState | **小** |
@@ -370,7 +370,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | ✅ **P2-7** | **质量分档职责划分**：明确 `utils/Quality.ts` 的 `QualityTier` + `LoadMonitor` 为运行时权威（自适应负载降档），`visual/quality.ts` 的 `getVisualProfile()` 只管 Bloom/辉光等静态档位；`LoadMonitor.sample()` 接进 `update()`，`FxPool.setLoadLevel()` 随之联动 | 两套并存会出现「用户设高质量、负载监控又降到低」的冲突。`MAX_PARTICLES`（low 360 / medium 800 / high 1400）× `LOAD_PARTICLES`（1 / 0.75 / 0.55 / 0.4）的两级缩放模型已经写好，只差接线与职责划分 | `utils/Quality.ts`；`visual/quality.ts:19-24`；`GameScene.ts` `update()` | 小 |
 | ✅ **P2-8** | 祝福选择时支持键盘/触屏数字键 1-2-3 快选 | 当前只能点击卡片。PC 端高频操作 | `GameScene.ts` `showUpgradeSelection`(2008) | 小 |
 
-### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `c27aff6` 及其后）
+### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `24ac5d9` 及其后）
 
 状态标记：✅ 完成 ／ 🟡 部分完成 ／ 未标记 = 未动。
 
@@ -383,7 +383,8 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-3** 门去重 | 🟡 已做**加权去重抽样**（同类型最多一扇，三扇门必然互不相同）。**未做** combat 降权 / shop·treasure·event 提权 / extraction 条件门控 —— 属平衡判断，无实机验证不擅动 | `468d483` |
 | **P0-2** 无敌帧 | ✅ `dashMotionTimer > 0` 全免疫 + `BALANCE.player.hurtIFrameSeconds`(0.7s) 受伤窗口，窗口内不重复结算也不重复播 `playerHurt` | `0abf682` |
 | **P0-3** 近战怪前摇 | ✅ 新增 `windupTimer/windupRange/windupMark` 三字段 + `startMeleeWindup/cancelMeleeWindup/resolveMeleeWindup`。两条伤害路径都改为「先亮红圈、到点重新测距才结算」：追击者范围爆 0.35s（半径 100）、贴身接触伤害 0.3s（半径 76，仍保留贴脸压迫感）。前摇期**照常追击**（否则拉开距离就永远不会被打中）但不开新攻击；被僵直 / 被击杀会打断前摇。时长进 `BALANCE.combat` 便于调参 | `c27aff6` |
-| **P1-9** 坦克冲撞前摇 | ✅ 新增 `chargeWindup/chargeMark` + `startChargeWindup/updateChargeWindup/endChargeWindup`。与清单原设想**不同**：原写的是「`chargeActive` 期画冲锋路径线」，即在已经冲出去之后画线 —— 那只能说明它正往哪冲，说明不了它**要**冲。改成冲锋**之前**蓄力 0.5s 并立指向线，期间钉在原地不再追击。期间玩家冲进 120px / 跑出 500px 会作废前摇（与发动条件一致）并留 0.6s 重试间隔；被僵直 / 被击杀同样打断。原有时序未动：`chargeTimer = 0.6` 仍在同帧被扣一次（有效冲刺约 0.3s），改前改后一致 | 本次提交 |
+| **P1-9** 坦克冲撞前摇 | ✅ 新增 `chargeWindup/chargeMark` + `startChargeWindup/updateChargeWindup/endChargeWindup`。与清单原设想**不同**：原写的是「`chargeActive` 期画冲锋路径线」，即在已经冲出去之后画线 —— 那只能说明它正往哪冲，说明不了它**要**冲。改成冲锋**之前**蓄力 0.5s 并立指向线，期间钉在原地不再追击。期间玩家冲进 120px / 跑出 500px 会作废前摇（与发动条件一致）并留 0.6s 重试间隔；被僵直 / 被击杀同样打断。原有时序未动：`chargeTimer = 0.6` 仍在同帧被扣一次（有效冲刺约 0.3s），改前改后一致 | `24ac5d9` |
+| **P1-5** 受伤屏幕红闪 | ✅ `UIScene` 加 `hurtFlashTimer` / `hurtFlashSeconds(0.7)` / `hurtFlashPeak(0.65)`，在 `refreshDangerVignette` 里算出 hurt 项后与低血、高温项**取 max**（同一条「屏幕边缘泛红」的视觉语言，故不另建贴图、不另加对象）。衰减挂在 `UIScene.update`，帧增量同样按 50ms 封顶，切后台再回来不会一次性闪完。`GameScene.flashDamageScreen()` 走 `TutorialController` 那套结构化可选访问（`flashDamage?.()`），UIScene 被先停掉时静默跳过。**与清单原设想的两处偏差**：① 不经 EventBus 加 `damage` 强度参数而是直接调 ScenePlugin —— `emit('damage')` 已存在、语义是事件广播，给它塞一个只给 HUD 用的展示参数是错位；② 用既有的 `0xff2040` 而非清单写的 `#FF2D55` —— vignette 贴图按颜色生成，换色等于多一张全屏贴图，而这点色差在边缘辉光下读不出来 | 本次提交 |
 | **P0-6** 选卡冻结 | ✅ `update()` 在 `upgradeSelectionActive` 时 early-return（连带停掉过载自损 / DoT / 温度），粒子与引导仍在其上推进 | `0abf682` |
 | **P2-8** 数字键快选 | ✅ 1/2/3 直选 + Esc 跳过；监听挂 window，故**所有**把 `upgradeSelectionActive` 置回 false 的路径都成对摘除 | `9f10fe4` |
 
@@ -396,13 +397,27 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
   而留着一个玩家躲不掉、也学不会的伤害。**仍需实机手感确认**。
 - **P0-5 门上奖励**：牵动 `RoomDef` 数据结构与撤离点预览，工作量「中」，属下一轮
 - **P1-1 稀有度掷骰**：直接改变构筑强度分布，需配合 P1-2 一起设计
-- **P1-5 / P1-8 / P1-10**：纯 HUD / 视觉类，风险低，可作为下一轮起点
+- **P1-8 / P1-10**：纯 HUD / 视觉类，风险低，可作为下一轮起点
 
 **验证方式的说明**：P0-3 与 P1-9 都用「直接驱动 `updateEnemies(delta)` 步进 + 读敌人状态」来断言，
 而非只看画面。`updateEnemies` 的 `delta` 单位是**秒**不是毫秒（踩过一次坑）。P0-3 的预警圈有截图佐证；
 P1-9 完成时桌面浏览器窗口已不可见、拿不到截图，只做了状态追踪（指向线生成 → 跟随玩家 → 发动时销毁 →
 击杀/僵直/清场三条清理路径都置 `chargeMark = null`）。指向线本身是一个 Rectangle + 两个 tween，构造与
 已在画面上验证过的 `enemyBeamAttack` 预警一致，但**外观未实机确认**。
+
+P1-5 的验证反过来暴露了一个环境事实：**浏览器窗口被遮挡时 rAF 被节流到约 1fps**（不是暂停，
+`document.visibilityState` 仍是 `visible`），于是 BootScene 看起来卡死、UIScene 长时间停在
+LOADING(5)、`browser.screenshot` 也报「需要可见标签页」——三件事同源，都不是代码 bug。
+排查时还有一个坑：把 `dangerVignette` 换成替身对象做断言后，它会一直留在实例上，
+后续 `create()` 不再重跑，于是「读到的 alpha」其实是替身的，必须重启 UIScene 才能拿回真对象。
+
+绕法是绕过游戏循环直接驱动被测方法。最终在**真实的 vignette Image** 上测到：
+满血低温基线 0 → `flashDamage()` 后 0.604 →（每 100ms 步长被 50ms 封顶，故 timer 只从 0.7
+走到 0.65）→ 0.557 / 0.511 / 0.464 … 线性衰减 → 归零回基线；`damagePlayer → flashDamageScreen`
+的接线单独断言为 `hurtFlashTimer === 0.7`（玩家未死时）。另注：`damagePlayer` 在 `result.died`
+时会早退，所以死亡那一击不闪红 —— 这是想要的行为。
+
+要做真正的实机验证，需要先让桌面浏览器窗口可见。
 
 ---
 

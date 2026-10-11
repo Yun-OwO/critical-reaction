@@ -5614,6 +5614,16 @@ export class GameScene extends Phaser.Scene {
     this.spawnElectronDrop(x, y);
   }
 
+  /**
+   * 受伤屏幕红闪（Hades 复盘 P1-5）：复用 UIScene 已有的危险 vignette，不新增贴图与
+   * GameObject。用 `TutorialController` 那套结构化可选访问（`?.()`），UIScene 不在时
+   * 静默跳过 —— 玩家死亡收尾等阶段确实会先停掉 UIScene。
+   */
+  private flashDamageScreen(): void {
+    const hud = this.scene.get('UIScene') as unknown as { flashDamage?: (seconds?: number) => void };
+    hud.flashDamage?.();
+  }
+
   private damagePlayer(): void {
     if (this.playerDying) return;
     // 冲刺全程无敌：本作主输出是 360° 近战挥斩，玩家必须贴脸；没有切入资本时
@@ -5641,6 +5651,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.applyFeedback('playerHurt');
+    this.flashDamageScreen();
     this.playerHurtIFrameTimer = BALANCE.player.hurtIFrameSeconds;
     // 受击形变：向内挤压一下，配合屏震把"被打到"的信息做实
     this.playPlayerSquash(0.16, 0.2);
