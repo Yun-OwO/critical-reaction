@@ -11,10 +11,10 @@ export function loadGameAssets(scene: Phaser.Scene): void {
   scene.load.svg('photom', 'sprites/enemies/photom.svg', { width: 96, height: 96 });
   scene.load.svg('monomer', 'sprites/enemies/monomer.svg', { width: 96, height: 96 });
   scene.load.svg('catalyst', 'sprites/enemies/catalyst.svg', { width: 96, height: 96 });
-  scene.load.svg('boss-titration', 'sprites/enemies/boss-titration.svg', { width: 256, height: 256 });
-  scene.load.svg('boss-electrolysis', 'sprites/enemies/boss-electrolysis.svg', { width: 256, height: 256 });
-  scene.load.svg('boss-chain', 'sprites/enemies/boss-chain.svg', { width: 256, height: 256 });
-  scene.load.svg('boss-oxidation', 'sprites/enemies/boss-oxidation.svg', { width: 256, height: 256 });
+  scene.load.svg('boss-titration', 'sprites/enemies/boss-titration.svg', { width: 192, height: 192 });
+  scene.load.svg('boss-electrolysis', 'sprites/enemies/boss-electrolysis.svg', { width: 192, height: 192 });
+  scene.load.svg('boss-chain', 'sprites/enemies/boss-chain.svg', { width: 192, height: 192 });
+  scene.load.svg('boss-oxidation', 'sprites/enemies/boss-oxidation.svg', { width: 192, height: 192 });
   // 音效（OGG）
   scene.load.audio('sfx-cannon', 'audio/LASRGun_Plasma Rifle Fire_03.ogg');
   scene.load.audio('sfx-saber-swing', 'audio/MOTRSrvo_Plasma Rifle Arm_01.ogg');

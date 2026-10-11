@@ -7503,7 +7503,9 @@ export class GameScene extends Phaser.Scene {
 
     // ---- 群系大型地物（v0.2.3）：trap 实物，带 2.5D 投影（origin 底部 + lift 上浮）----
     for (const prop of terrain.props) {
-      const propImg = this.add.image(prop.x, prop.y, prop.texture)
+      // lift 一直生成了却没被用上（TerrainProp.lift 6-16px），大型地物会整块陷进地面；
+      // 这里把本体按 lift 上浮，阴影仍留在地面，读作"立在地上"。
+      const propImg = this.add.image(prop.x, prop.y - prop.lift, prop.texture)
         .setOrigin(0.5, 1)
         .setAlpha(0.95);
       const pw = propImg.width * 0.5;
@@ -7511,7 +7513,7 @@ export class GameScene extends Phaser.Scene {
       propImg.setDisplaySize(pw, ph);
       // 深度按 y 排序（越靠下越靠前），跟玩家/敌人同层体系（depth 由 y 决定）
       propImg.setDepth(prop.y * 0.001 + 0.25);
-      // 底部椭圆阴影（接地感）
+      // 底部椭圆阴影（接地感）：阴影留在地面而非上浮后的位置
       const shadow = this.add.ellipse(prop.x, prop.y + 4, pw * 0.7, ph * 0.16, 0x000000, 0.3)
         .setDepth(prop.y * 0.001 + 0.24);
       this.registerCullable(propImg, 0, 260);

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { loadGameAssets } from '../utils/AssetLoader';
 import { loadProfileFromStorage } from '../state/ProfileState';
+import { ensureFallbackTextures, TERRAIN_TEXTURE_KEYS } from '../utils/TextureGuard';
 
 /**
  * 加载泵兜底（v0.2.3.1）：Loader 的推进完全依赖 SceneEvents.UPDATE（由 RAF 驱动）。
@@ -10,7 +11,7 @@ import { loadProfileFromStorage } from '../state/ProfileState';
  *  1. window 定时器每 300ms 手动泵一次 Loader.update（幂等，RAF 正常时无副作用）；
  *  2. 12 秒强制收尾：调引擎内建 loadComplete() 清队列放行；
  *  3. 'loaderror' 事件也计入完成，单个资源 404 不再阻塞整体。
- * 遵循「游戏永不阻塞于资源」原则：缺失纹理走降级渲染。
+ * 遵循「游戏永不阻塞于资源」原则：缺失纹理走降级渲染（见 TextureGuard）。
  */
 const LOAD_TIMEOUT_SEC = 12;
 
@@ -62,6 +63,10 @@ export class BootScene extends Phaser.Scene {
     g.generateTexture('fog-p', 2, 2);
     g.destroy();
     this.createFxTextures();
+    // 降级渲染兜底：任何一张地物/角色纹理没加载成功时，用 canvas 生成同尺寸的
+    // 描边占位块顶替。缺了纹理至少还是「一块该在位置上的几何体」，
+    // 而不是 Phaser 那张绿/洋红棋盘格（在暗背景下特别扎眼，且尺寸也未对齐）。
+    ensureFallbackTextures(this, TERRAIN_TEXTURE_KEYS);
     // 等 overlay 淡出后再切场景
     this.time.delayedCall(800, () => {
       void loadProfileFromStorage().finally(() => {
