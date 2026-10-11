@@ -6,7 +6,7 @@ import { getWeaponForm, getWeaponLevel } from '../state/ProfileState';
 import { getGear, pickGearDrop, GEAR_RARITY_META } from '../data/gear';
 import { COMBAT_POOL, EXTRACTION_DEFS, ROOM_THEMES, buildComposition, generateRoomDoors, generateStartRoom, makeCombatWaves, getLayerName, getLayerProgress, getLayerHpScale, getLayerSpeedScale, createFinalBossRoom, pickExtraction, settleExtractionSamples } from '../data/rooms';
 import type { EnemyKind, ExtractionDef, InstrumentOffer, RoomDef, RoomEnemyDef, RoomReward, RoomType } from '../data/rooms';
-import type { EventContext } from '../data/events';
+import { availableEvents, optionAvailable, rollEvent, type EventContext, type EventDef, type EventOption, type EventOutcome } from '../data/events';
 import { canSpend, couponsForChest, couponsForRoom, rollShop, settleCoupons, spendCoupons, type ShopSlot } from '../data/shop';
 
 /**
@@ -374,6 +374,7 @@ export class GameScene extends Phaser.Scene {
   private chest: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; reward: RoomReward; gearDrop: string | null; opened: boolean } | null = null;
   private merchant: MerchantStall | null = null;
   private instrument: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; offer: InstrumentOffer; used: boolean } | null = null;
+  private eventTerminal: { view: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; used: boolean } | null = null;
   /** 染料房：染料罐 / 调色盘装置（每个 station 提供一个可吸收的染料 id） */
   private dyeStations: { x: number; y: number; dyeId: string; view: Phaser.GameObjects.Arc; halo: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text }[] = [];
   /** 染料房形态：'vat' 染缸 3 选 1（填副槽/底槽），'palette' 调色盘（主+副混色填底槽） */
@@ -402,6 +403,16 @@ export class GameScene extends Phaser.Scene {
   private roomBoundaryColor = 0x67e8f9;
   private upgradeChoices: BoonDef[] = [];
   private upgradeSelectionActive = false;
+  /**
+   * 事件面板是否打开。与祝福面板共用同一套冻结约定：打开期间战斗分支整体早退，
+   * 读选项的时间不该计入生存成本（事件房不会有战斗，但玩家可能在撤离空档撞上）。
+   */
+  private eventOverlayActive = false;
+  /** 当前打开的事件定义（关闭时置 null）。 */
+  private activeEvent: EventDef | null = null;
+  /** 事件面板已结算完毕，等玩家关闭；期间不再重复结算。 */
+  private eventResolved = false;
+  private eventKeyHandler: ((ev: KeyboardEvent) => void) | null = null;
   /** 祝福面板的数字键快选监听（1/2/3 直选、Esc 跳过）。必须成对挂/摘，否则多次弹出会叠加。 */
   private boonKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private boonPickup: { glow: Phaser.GameObjects.Arc; ring: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text; choices: BoonDef[] } | null = null;
@@ -936,7 +947,7 @@ export class GameScene extends Phaser.Scene {
     // 选择不一定发生在"房间已彻底清空"——Boss 房的觉醒祝福、撤离前的空档都会撞上
     // updateExtraction 每 3s 生成的追击者，玩家正读着三张卡却在挨打。
     // 连带把过载自损、DoT、温度一并停住：读卡的时间不该计入生存成本。
-    if (this.upgradeSelectionActive) {
+    if (this.upgradeSelectionActive || this.eventOverlayActive) {
       this.playerBody.setAcceleration(0, 0);
       return;
     }
@@ -1348,6 +1359,14 @@ export class GameScene extends Phaser.Scene {
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
   }
+
+  /**
+   * 局内伤害加成（事件给的，如「以身试药」+12%）。与 reactionLayers 的成长是**乘区叠加**，
+   * 不写进 gameState —— 它只在本次 GameScene 实例里有意义，随 run 结束自然消失。
+   */
+  private runDamageBonus = 0;
+  /** 下一战敌人血量倍率（事件给的，如「样本盗窃」+15%），开一波后归位。 */
+  private nextCombatHpMult = 1;
 
   /** 电子转移累积催化层数：999 封顶，里程碑按序领取并结算奖励。 */
   private gainReactionLayers(gain: number): void {
@@ -1862,13 +1881,18 @@ export class GameScene extends Phaser.Scene {
     this.roomDoorTargets = [];
     this.chest = null;
     this.merchant = null;
+    this.eventTerminal = null;
+    this.closeEventOverlay();
     this.instrument = null;
     this.dyeStations = [];
     this.player.setPosition(this.diamondCx, this.diamondCy);
     this.playerBody.reset(this.diamondCx, this.diamondCy);
     if (room.type === 'treasure') this.spawnChest();
     if (room.type === 'shop') this.spawnMerchant();
-    if (room.type === 'event') this.spawnInstrument();
+    if (room.type === 'event') {
+      this.spawnInstrument();
+      this.spawnEventTerminal();
+    }
     if (room.type === 'dye') this.spawnDyeRoom();
     if (room.type === 'extraction') {
       this.createExtractionZone();
@@ -1977,7 +2001,7 @@ export class GameScene extends Phaser.Scene {
       this.telegraphBossSpawn();
       return;
     }
-    const hpScale = (getLayerHpScale(room.layer) + this.runWaveCounter * 0.18) * (cfg.elite ? 2 : 1);
+    const hpScale = (getLayerHpScale(room.layer) + this.runWaveCounter * 0.18) * (cfg.elite ? 2 : 1) * this.nextCombatHpMult;
     const speedBonus = getLayerSpeedScale(room.layer) + (cfg.elite ? 14 : 0);
     const roster = buildComposition(cfg, cfg.count, Math.random, BALANCE.combat.equivalentSwapChance);
     for (const def of roster) {
@@ -2473,6 +2497,7 @@ export class GameScene extends Phaser.Scene {
     const evolutionLevels = Object.values(gameState.dyeEvolution ?? {}).reduce((sum, v) => sum + v, 0);
     const mult = this.electronState.damageMult * this.gearDamageMult * w.damageMult
       * (1 + evolutionLevels * 0.01)
+      * (1 + this.runDamageBonus)          // 事件给的本局加成（如「以身试药」）
       * this.reactionDamageMult()
       * (mode === 'oxidized' ? w.oxidizeMult : w.reduceMult);
     return clampPressure(Math.max(0, mult - 1));
@@ -2922,6 +2947,14 @@ export class GameScene extends Phaser.Scene {
         this.useInstrument();
       }
     }
+    if (this.eventTerminal && !this.eventTerminal.used) {
+      const near = Phaser.Math.Distance.Between(this.player.x, this.player.y, this.eventTerminal.view.x, this.eventTerminal.view.y) < 150;
+      this.eventTerminal.label.setAlpha(near ? 1 : 0.6);
+      if (near && interactPressed) {
+        resetQueuedActions();
+        this.openEventOverlay();
+      }
+    }
     for (const station of this.dyeStations) {
       const near = Phaser.Math.Distance.Between(this.player.x, this.player.y, station.x, station.y) < 150;
       station.label.setAlpha(near ? 1 : 0.55);
@@ -3019,6 +3052,197 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** 事件房：化学仪器（设计文档 §10.3），随机取一台，一次性交互。 */
+  /**
+   * 事件终端（事件房里的第二个可交互物）。
+   *
+   * 与仪器并存而非取代：仪器是「一次性温度/样本交易」，事件是「多选一抉择」，
+   * 两者的决策形状不同，放在一间房里让玩家一次面对两种取舍。
+   */
+  private spawnEventTerminal(): void {
+    // 先看这一局还有没有能抽到的事件；没有就不放终端，避免摆一个点不动的摆设
+    if (availableEvents(this.eventContext()).length === 0) return;
+    const pos = this.clampToPlayArea(this.diamondCx + 460, this.diamondCy - 220);
+    const view = this.add.rectangle(pos.x, pos.y, 96, 96, 0x67e8f9, 0.1)
+      .setStrokeStyle(3, 0x67e8f9, 0.95).setDepth(6);
+    const glow = this.add.ellipse(pos.x, pos.y + 34, 126, 54, 0x67e8f9, 0.14)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(5);
+    this.roomProps.push(glow);
+    this.tweens.add({ targets: glow, alpha: { from: 0.1, to: 0.24 }, scaleX: { from: 0.9, to: 1.18 }, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const icon = this.add.text(pos.x, pos.y - 4, '▤', {
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: '30px'
+    }).setOrigin(0.5).setDepth(7);
+    this.roomProps.push(icon);
+    const label = this.add.text(pos.x, pos.y - 64, '实验日志 [E]\n未知事件', {
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: '16px', align: 'center'
+    }).setOrigin(0.5).setDepth(7);
+    this.roomProps.push(label);
+    this.eventTerminal = { view, label, used: false };
+  }
+
+  /** 抽取一个当前局况可出现的事件并打开面板。 */
+  private openEventOverlay(): void {
+    if (this.eventOverlayActive) return;
+    const def = rollEvent(this.eventContext(), Math.random);
+    if (!def) return;
+    this.eventOverlayActive = true;
+    this.eventResolved = false;
+    this.activeEvent = def;
+
+    const overlay = document.getElementById('event-overlay');
+    const title = document.getElementById('event-title');
+    const flavor = document.getElementById('event-flavor');
+    const list = document.getElementById('event-options');
+    const foot = document.getElementById('event-foot');
+    const result = document.getElementById('event-result');
+    if (!overlay || !list || !title || !flavor || !foot || !result) {
+      this.eventOverlayActive = false;
+      this.activeEvent = null;
+      return;
+    }
+
+    title.textContent = def.title;
+    flavor.textContent = def.flavor;
+    result.textContent = '';
+    foot.textContent = '数字键 1-9 选择 · Esc 关闭';
+    list.innerHTML = '';
+
+    const ctx = this.eventContext();
+    def.options.forEach((opt, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'event-option';
+      btn.dataset.key = String(i + 1);
+      btn.disabled = !optionAvailable(opt, ctx);
+      const label = document.createElement('span');
+      label.className = 'event-option-label';
+      label.textContent = opt.label;
+      btn.appendChild(label);
+      if (opt.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'event-option-hint';
+        hint.textContent = opt.hint;
+        btn.appendChild(hint);
+      }
+      btn.onclick = () => this.chooseEventOption(opt);
+      list.appendChild(btn);
+    });
+
+    overlay.classList.add('show');
+    overlay.classList.remove('fade-out');
+
+    // 数字键选择：与祝福面板共用肌肉记忆
+    this.eventKeyHandler = (ev: KeyboardEvent) => {
+      if (!this.eventOverlayActive) return;
+      if (ev.key === 'Escape') { this.closeEventOverlay(); return; }
+      const n = Number(ev.key) - 1;
+      if (!Number.isInteger(n) || n < 0 || n >= def.options.length) return;
+      ev.preventDefault();
+      const opt = def.options[n];
+      if (!optionAvailable(opt, ctx)) return;
+      this.chooseEventOption(opt);
+    };
+    window.addEventListener('keydown', this.eventKeyHandler);
+  }
+
+  /** 结算一个选项：把 resolve 的纯增量落到 gameState 上。 */
+  private chooseEventOption(opt: EventOption): void {
+    if (!this.eventResolved && this.activeEvent) {
+      const outcome = opt.resolve(this.eventContext(), Math.random);
+      this.applyEventOutcome(outcome);
+      this.eventResolved = true;
+      this.recordEventSeen(this.activeEvent.id);
+      const result = document.getElementById('event-result');
+      if (result) result.textContent = outcome.text;
+      const foot = document.getElementById('event-foot');
+      if (foot) foot.textContent = '按 E 或 Esc 离开';
+      // 结算后禁用全部按钮，避免同一次面板重复拿收益
+      document.querySelectorAll('#event-options .event-option').forEach((b) => {
+        (b as HTMLButtonElement).disabled = true;
+      });
+      if (this.eventTerminal) this.eventTerminal.used = true;
+    }
+  }
+
+  /** 把事件的增量应用到实际状态。dyeSlots/carriedGear 的特殊语义在这里兜住。 */
+  private applyEventOutcome(o: EventOutcome): void {
+    const p = this.player;
+    if (o.coupons) {
+      gameState.coupons = Math.max(0, gameState.coupons + o.coupons);
+      if (o.coupons > 0) this.showFloatingText(p.x, p.y - 128, `+${o.coupons} 券`, '#67E8F9');
+    }
+    if (o.ehp) {
+      gameState.ehp = Math.max(0, gameState.ehp + o.ehp);
+      this.showFloatingText(p.x, p.y - 96, `${o.ehp} HP`, o.ehp > 0 ? '#5CFFB1' : '#FF5C7A');
+    }
+    if (o.ehpMax) gameState.ehpMax = Math.max(1, gameState.ehpMax + o.ehpMax);
+    if (o.temperature) {
+      gameState.temperature = Phaser.Math.Clamp(gameState.temperature + o.temperature, 0, 100);
+      this.showFloatingText(p.x, p.y - 62, `${o.temperature > 0 ? '+' : ''}${o.temperature}°C`, '#FF8A4C');
+    }
+    if (o.freeElectrons) {
+      gainFreeElectrons(o.freeElectrons);
+      this.showElectronDelta(p.x, p.y, o.freeElectrons, '#67E8F9', true);
+    }
+    for (const dyeId of o.dyes ?? []) {
+      const empty = gameState.dyeSlots.find((s) => !s.dyeId);
+      const target = empty ?? gameState.dyeSlots[0];
+      target.dyeId = dyeId;
+      target.purity = empty ? 1 : 0.25;
+      this.showFloatingText(p.x, p.y - 30, `染色 ${getDye(dyeId)?.name ?? dyeId}`, '#F5D0FE');
+    }
+    // 「卖掉一件装备」：只摘出携带列表，仓库（局外）不动
+    if (o.flags?.includes('sold-gear') && gameState.carriedGear.length > 0) {
+      gameState.carriedGear.shift();
+      this.showFloatingText(p.x, p.y - 30, '失去一件装备', '#FF5C7A');
+    }
+    // 「烧掉一个祝福」：摘掉等级最低的那个，槽位空出来
+    if (o.flags?.includes('burned-boon') && gameState.equippedBoons.length > 0) {
+      const idx = gameState.equippedBoons.reduce(
+        (min, b, i, arr) => (b.level < arr[min].level ? i : min), 0
+      );
+      const [removed] = gameState.equippedBoons.splice(idx, 1);
+      this.showFloatingText(p.x, p.y - 30, `焚毁 ${removed?.name ?? '祝福'}`, '#FF5C7A');
+      this.resetBoonState();
+    }
+    // 「借债」：结算时少带一件战利品，用撤离结算兑现（见撤离分支）
+    if (o.flags?.includes('debt-carry') && gameState.carriedGear.length > 0) {
+      gameState.carriedGear.pop();
+      this.showFloatingText(p.x, p.y - 30, '典当了一件装备', '#FF5C7A');
+    }
+    // 「样本盗窃」的代价：抬高下一战敌人血量
+    if (o.nextCombatHpMult) this.nextCombatHpMult = Math.max(this.nextCombatHpMult, o.nextCombatHpMult);
+    // 「以身试药」的收益：本局伤害加成
+    if (o.flags?.includes('trial-buff')) this.runDamageBonus += 0.12;
+    this.playSfx('sfx-ding', 0.9);
+  }
+
+  private recordEventSeen(id: string): void {
+    if (!gameState.seenEvents.includes(id)) gameState.seenEvents.push(id);
+  }
+
+  private closeEventOverlay(): void {
+    if (!this.eventOverlayActive) return;
+    this.eventOverlayActive = false;
+    this.activeEvent = null;
+    if (this.eventKeyHandler) {
+      window.removeEventListener('keydown', this.eventKeyHandler);
+      this.eventKeyHandler = null;
+    }
+    const overlay = document.getElementById('event-overlay');
+    if (overlay) {
+      overlay.classList.add('fade-out');
+      window.setTimeout(() => overlay.classList.remove('show', 'fade-out'), 380);
+    }
+  }
+
+  /** 关面板的唯一出口：关掉时若事件终端还没用掉，标记它已用过（一次一事件房）。 */
+  private finishEventTerminal(): void {
+    if (this.eventTerminal && !this.eventTerminal.used) {
+      this.eventTerminal.used = true;
+      this.eventTerminal.label.setText('实验日志\n已阅');
+    }
+  }
+
   private spawnInstrument(): void {
     const offer = this.roomDef.instrument;
     if (!offer) return;
@@ -3497,6 +3721,12 @@ export class GameScene extends Phaser.Scene {
       this.instrument.label.destroy();
       this.instrument = null;
     }
+    if (this.eventTerminal) {
+      this.eventTerminal.view.destroy();
+      this.eventTerminal.label.destroy();
+      this.eventTerminal = null;
+    }
+    this.closeEventOverlay();
     this.dyeStations.forEach((s) => {
       s.view.destroy();
       s.halo.destroy();

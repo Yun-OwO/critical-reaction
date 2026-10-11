@@ -60,6 +60,61 @@
 }
 @keyframes upgrade-title-in { from { opacity: 0; transform: translateY(-20px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
+/* ---- 事件面板（集成战略「不期而遇」：选项即抉择，代价写在脸上）---- */
+#event-overlay {
+  position: fixed; inset: 0; z-index: 82;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(30,10,45,.82) 0%, rgba(6,4,12,.95) 100%);
+  pointer-events: auto;
+}
+#event-overlay.show { display: flex; }
+#event-overlay.fade-out { animation: overlay-fade-out .35s ease-in forwards; }
+
+.event-panel {
+  width: min(620px, 92vw); max-height: 86vh; overflow-y: auto;
+  padding: 26px 24px 20px;
+  background: linear-gradient(165deg, rgba(26,14,44,.97) 0%, rgba(10,6,20,.99) 100%);
+  border: 2px solid #e879f9; border-radius: 14px;
+  box-shadow: 0 0 46px rgba(232,121,249,.28);
+  animation: card-in .32s ease-out;
+}
+.event-title {
+  margin: 0 0 6px; color: #f5d0fe; font-family: monospace;
+  font-size: clamp(17px, 3vw, 22px); letter-spacing: .06em;
+  text-shadow: 0 0 26px rgba(232,121,249,.5);
+}
+.event-flavor {
+  margin: 0 0 18px; color: #c4b5d6; font-family: monospace;
+  font-size: clamp(12px, 2.1vw, 14px); line-height: 1.7; opacity: .92;
+}
+.event-options { display: flex; flex-direction: column; gap: 10px; }
+
+.event-option {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%;
+  padding: 13px 15px; cursor: pointer;
+  background: rgba(245,208,254,.05);
+  border: 1px solid rgba(232,121,249,.45); border-left: 3px solid #e879f9; border-radius: 9px;
+  transition: background .16s ease, transform .16s ease, border-color .16s ease;
+}
+.event-option:hover:not(:disabled) {
+  background: rgba(245,208,254,.13); transform: translateX(4px); border-color: #f5d0fe;
+}
+.event-option:active:not(:disabled) { transform: translateX(4px) scale(.995); }
+.event-option:disabled { opacity: .4; cursor: not-allowed; border-left-color: #555; }
+/* 序号角标：让「按数字键选」这条肌肉记忆能复用（与祝福面板一致） */
+.event-option::after {
+  content: attr(data-key); position: absolute; margin-left: 0;
+  align-self: flex-end; color: rgba(245,208,254,.45); font-family: monospace; font-size: 12px;
+}
+.event-option-label { color: #f5d0fe; font-family: monospace; font-size: clamp(13px, 2.2vw, 15px); }
+.event-option-hint { color: #94a3b8; font-family: monospace; font-size: clamp(11px, 1.9vw, 12.5px); }
+.event-option-result {
+  margin-top: 14px; padding: 12px 14px; min-height: 20px;
+  background: rgba(92,255,177,.08); border: 1px solid rgba(92,255,177,.4); border-radius: 9px;
+  color: #5cffb1; font-family: monospace; font-size: clamp(12px, 2.1vw, 13.5px); line-height: 1.6;
+}
+.event-foot { margin-top: 12px; color: #64748b; font-family: monospace; font-size: 11.5px; text-align: center; }
+
 /* 卡片容器：一行三张（自动换行兜底） */
 #upgrade-cards {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch;
@@ -898,6 +953,15 @@
         <div id="upgrade-subtitle"></div>
         <div id="upgrade-cards"></div>
         <button id="upgrade-skip">跳过</button>
+      </div>
+      <div id="event-overlay">
+        <div class="event-panel" role="dialog" aria-modal="true" aria-labelledby="event-title">
+          <h1 class="event-title" id="event-title"></h1>
+          <p class="event-flavor" id="event-flavor"></p>
+          <div class="event-options" id="event-options"></div>
+          <div class="event-option-result" id="event-result"></div>
+          <div class="event-foot" id="event-foot"></div>
+        </div>
       </div>
       <div id="upgrade-get"></div>
       <div id="report-overlay"><div class="report-panel" id="report-panel"></div></div>
