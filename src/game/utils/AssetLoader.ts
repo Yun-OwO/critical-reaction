@@ -38,17 +38,19 @@ export function loadGameAssets(scene: Phaser.Scene): void {
   scene.load.audio('sfx-da', 'audio/da.wav');           // 加入/应用
   scene.load.audio('sfx-duong', 'audio/duong.wav');     // 失败/不足
   scene.load.audio('sfx-huu', 'audio/huu.wav');         // 收起
-  // Chemic 纹理（原尺寸平铺/粒子，不缩放）
-  scene.load.image('tex-flower', 'textures/flower.png');
-  scene.load.image('tex-rock', 'textures/rock.png');
-  scene.load.image('tex-mushroom', 'textures/mushroom.png');
-  scene.load.image('tex-anthemy', 'textures/anthemy.png');
-  scene.load.image('tex-thick', 'textures/thick.png');
+  // Chemic 玻璃器皿：浅蓝描边扁平风，与本作描边几何语言不冲突，保留 PNG
   scene.load.image('tex-beaker', 'textures/beaker.png');
   scene.load.image('tex-flask', 'textures/flask.png');
-  scene.load.image('tex-shield', 'textures/shield.png');
-  scene.load.image('tex-speed', 'textures/speed.png');
-  // 群系地形/实物瓦片（v0.2.3）：tloor/tbc 地板（2.5D 投影用）
-  scene.load.image('biome-tloor', 'textures/biomes/tloor.png');
-  scene.load.image('biome-tbc', 'textures/biomes/tbc.png');
+  // 群系地物：手绘描边几何 SVG，化学主题（晶格 / 分子球棍 / 苯环 / 滴定管 / 高分子链）。
+  // 原 chemic 的 rock/mushroom/flower/anthemy/thick 是像素手绘的花花草草，既与本作
+  // 深色描边几何的场景风格割裂，也不贴化学题材，故整体重绘；raster 尺寸沿用原 PNG，
+  // 以免影响 terrain 里按 width/height 推导的 2.5D 投影与底部阴影尺寸。
+  scene.load.svg('chem-lattice', 'sprites/decor/lattice.svg', { width: 64, height: 64 });
+  scene.load.svg('chem-molecule', 'sprites/decor/molecule.svg', { width: 64, height: 64 });
+  scene.load.svg('chem-benzene', 'sprites/decor/benzene.svg', { width: 64, height: 64 });
+  scene.load.svg('chem-burette', 'sprites/decor/burette.svg', { width: 64, height: 64 });
+  scene.load.svg('chem-polymer', 'sprites/decor/polymer.svg', { width: 256, height: 64 });
+  // 地面实物瓦片（v0.2.3）：tloor 中性石板 / tbc 群系色地表，2.5D 投影贴地
+  scene.load.svg('biome-tloor', 'sprites/decor/tile-slab.svg', { width: 64, height: 64 });
+  scene.load.svg('biome-tbc', 'sprites/decor/tile-surface.svg', { width: 375, height: 135 });
 }

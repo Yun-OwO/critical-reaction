@@ -6929,9 +6929,9 @@ export class GameScene extends Phaser.Scene {
       this.registerCullable(shadow, 0, 260);
     }
 
-    // 战斗布景：Chemic 花/石/蘑菇/炼金台密集贴地（原尺寸、贴着地面、跟随相机）
+    // 战斗布景：化学几何地物密集贴地（原尺寸、贴着地面、跟随相机）
     // 约束：落在菱形地图内（|dx|/A+|dy|/B<=0.92）、彼此间距 >= 120、不进中心出生区；密度相对原 34 -50%
-    const chemicKeys = ['tex-flower', 'tex-rock', 'tex-mushroom', 'tex-anthemy'];
+    const chemicKeys = ['chem-lattice', 'chem-molecule', 'chem-benzene', 'chem-burette'];
     const decoPts: { x: number; y: number }[] = [];
     const inDiamond = (x: number, y: number, margin = 0.92): boolean =>
       Math.abs(x - this.diamondCx) / this.diamondA + Math.abs(y - this.diamondCy) / this.diamondB <= margin;
