@@ -2096,7 +2096,14 @@ export class GameScene extends Phaser.Scene {
       title.style.setProperty('--school-color', schoolColor.light);
       title.style.setProperty('--school-glow', schoolColor.glow);
     }
-    if (subtitle) subtitle.textContent = '选择一项祝福';
+    // 禁用祝福明码标价（Hades 复盘 P1-10）：祝福池里少了什么玩家是看不见的，只能察觉
+    // 「怎么一直没出 X」。状态面板（TAB）里已有完整清单，但那要玩家主动去开；这里在
+    // 做抉择的当口直接把名字摆出来 —— 数量恒为 BALANCE.upgrades.runDisabledCount(2) 个，
+    // 两个名字排一行不会把副标题撑破。
+    if (subtitle) {
+      const disabled = gameState.disabledBoons.map((id) => getBoonDef(id)?.name ?? id).join('、');
+      subtitle.textContent = disabled ? `选择一项祝福 · 本局禁用：${disabled}` : '选择一项祝福';
+    }
 
     // 卡片文案按当前手持武器显示（等离子体：近战加挥斩半径 / 远程加光束宽度）
     const weaponType = getWeapon(gameState.currentWeapon).type;

@@ -354,7 +354,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-7** | **房间清空的节奏断点**：清空瞬间触发 BGM 层次切换（BgmManager 已有状态派生选曲）+ 祝福光团落地时的低频冲击音 + 门开启的机械音 | Hades 在清空节点有明显的节奏转换（战斗音乐退潮 + 奖励落地声）。本项目 `onRoomCleared`(1948-1978) 只有一声 ding + banner，400ms 后光团静默出现 | `GameScene.ts` `onRoomCleared`(1948) / `spawnBoonPickup`(2946)；`BgmManager.ts` | **小** |
 | ✅ **P1-8** | **熔毁倒计时 HUD 读秒**：把剩余秒数写进既有的温度态标签（`熔毁 12.3s`），最后 3s 转白并把脉冲频率翻倍 | 「可预期」硬要求。当前只有一条浮字，玩家必须盯着才知道什么时候炸 | `UIScene.ts` `refresh`；`GameScene` 暴露 `meltdownSecondsLeft` | **小** |
 | ✅ **P1-9** | **坦克冲撞加视觉前摇**：`chargeActive` 之前插入一段蓄力期，立一条以敌人为原点、朝玩家实时对准的红色指向线，由宽收窄并脉冲提亮 | 当前只有音效 + 屏震（`chargeActive` 分支），玩家看不到它要冲向哪 | `GameScene.ts` `updateEnemies` tank 分支 | **小** |
-| **P1-10** | **每局禁用祝福对玩家可见**：局开始时在 HUD 或状态面板显示「本局禁用：N 个」，点击可查看清单；或改为局前抽签展示 | Hades 的 Pact of Punishment 把限制明码标价。静默禁用（`upgrades.ts:252-259`）会让玩家困惑且无法决策 | `GameScene.ts` `create`(651) 禁用抽样处；`UIScene.ts` 状态面板 | **小** |
+| ✅ **P1-10** | **每局禁用祝福对玩家可见**：把禁用名单直接写进祝福面板副标题（`选择一项祝福 · 本局禁用：晶格冲击、共振冲刺`） | Hades 的 Pact of Punishment 把限制明码标价。静默禁用会让玩家困惑且无法决策 | `GameScene.ts` `showUpgradeSelection` | **小** |
 | ✅ **P1-11** | **`pickBoons` 学派多样性真正生效**：`usedSchools` 当前只 `add` 不筛选（`upgrades.ts:273`），补上「优先不同学派」的过滤 | 注释声称保证学派多样性，实际没做。三张卡同学派会让「四大化学学派」的主题感崩塌 | `upgrades.ts` `pickBoons`(265)；单测 `tests/upgrades.test.ts` 补断言 | **小** |
 
 ### P2 — 锦上添花
@@ -370,7 +370,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | ✅ **P2-7** | **质量分档职责划分**：明确 `utils/Quality.ts` 的 `QualityTier` + `LoadMonitor` 为运行时权威（自适应负载降档），`visual/quality.ts` 的 `getVisualProfile()` 只管 Bloom/辉光等静态档位；`LoadMonitor.sample()` 接进 `update()`，`FxPool.setLoadLevel()` 随之联动 | 两套并存会出现「用户设高质量、负载监控又降到低」的冲突。`MAX_PARTICLES`（low 360 / medium 800 / high 1400）× `LOAD_PARTICLES`（1 / 0.75 / 0.55 / 0.4）的两级缩放模型已经写好，只差接线与职责划分 | `utils/Quality.ts`；`visual/quality.ts:19-24`；`GameScene.ts` `update()` | 小 |
 | ✅ **P2-8** | 祝福选择时支持键盘/触屏数字键 1-2-3 快选 | 当前只能点击卡片。PC 端高频操作 | `GameScene.ts` `showUpgradeSelection`(2008) | 小 |
 
-### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `51d33a9` 及其后）
+### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `fd08450` 及其后）
 
 状态标记：✅ 完成 ／ 🟡 部分完成 ／ 未标记 = 未动。
 
@@ -385,7 +385,8 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P0-3** 近战怪前摇 | ✅ 新增 `windupTimer/windupRange/windupMark` 三字段 + `startMeleeWindup/cancelMeleeWindup/resolveMeleeWindup`。两条伤害路径都改为「先亮红圈、到点重新测距才结算」：追击者范围爆 0.35s（半径 100）、贴身接触伤害 0.3s（半径 76，仍保留贴脸压迫感）。前摇期**照常追击**（否则拉开距离就永远不会被打中）但不开新攻击；被僵直 / 被击杀会打断前摇。时长进 `BALANCE.combat` 便于调参 | `c27aff6` |
 | **P1-9** 坦克冲撞前摇 | ✅ 新增 `chargeWindup/chargeMark` + `startChargeWindup/updateChargeWindup/endChargeWindup`。与清单原设想**不同**：原写的是「`chargeActive` 期画冲锋路径线」，即在已经冲出去之后画线 —— 那只能说明它正往哪冲，说明不了它**要**冲。改成冲锋**之前**蓄力 0.5s 并立指向线，期间钉在原地不再追击。期间玩家冲进 120px / 跑出 500px 会作废前摇（与发动条件一致）并留 0.6s 重试间隔；被僵直 / 被击杀同样打断。原有时序未动：`chargeTimer = 0.6` 仍在同帧被扣一次（有效冲刺约 0.3s），改前改后一致 | `24ac5d9` |
 | **P1-5** 受伤屏幕红闪 | ✅ `UIScene` 加 `hurtFlashTimer` / `hurtFlashSeconds(0.7)` / `hurtFlashPeak(0.65)`，在 `refreshDangerVignette` 里算出 hurt 项后与低血、高温项**取 max**（同一条「屏幕边缘泛红」的视觉语言，故不另建贴图、不另加对象）。衰减挂在 `UIScene.update`，帧增量同样按 50ms 封顶，切后台再回来不会一次性闪完。`GameScene.flashDamageScreen()` 走 `TutorialController` 那套结构化可选访问（`flashDamage?.()`），UIScene 被先停掉时静默跳过。**与清单原设想的两处偏差**：① 不经 EventBus 加 `damage` 强度参数而是直接调 ScenePlugin —— `emit('damage')` 已存在、语义是事件广播，给它塞一个只给 HUD 用的展示参数是错位；② 用既有的 `0xff2040` 而非清单写的 `#FF2D55` —— vignette 贴图按颜色生成，换色等于多一张全屏贴图，而这点色差在边缘辉光下读不出来 | `51d33a9` |
-| **P1-8** 熔毁倒计时读秒 | ✅ `GameScene` 暴露只读 getter `meltdownSecondsLeft`（温度 <95 时底层计时器本就被重置为满值 15，UI 据此能区分「在倒计时」和「暂时安全」），加进 `UIScene` 的 `GameSceneRef` 最小接口而非直接 import GameScene。显示上**不新建 Text**：直接把秒数写进既有的温度态标签（`熔毁 12.3s`），最后 3s 转白 `#FFFFFF`、脉冲频率由 0.012 加倍到 0.024。选这个做法是因为移动端温度计下方的空间是按「一行状态文字」预留的，多加一行会压到按钮组；而把读数并进玩家本来就会看的那一行，既零布局风险又零新增对象 | 本次提交 |
+| **P1-8** 熔毁倒计时读秒 | ✅ `GameScene` 暴露只读 getter `meltdownSecondsLeft`（温度 <95 时底层计时器本就被重置为满值 15，UI 据此能区分「在倒计时」和「暂时安全」），加进 `UIScene` 的 `GameSceneRef` 最小接口而非直接 import GameScene。显示上**不新建 Text**：直接把秒数写进既有的温度态标签（`熔毁 12.3s`），最后 3s 转白 `#FFFFFF`、脉冲频率由 0.012 加倍到 0.024。选这个做法是因为移动端温度计下方的空间是按「一行状态文字」预留的，多加一行会压到按钮组；而把读数并进玩家本来就会看的那一行，既零布局风险又零新增对象 | `fd08450` |
+| **P1-10** 禁用祝福可见 | ✅ 状态面板（TAB）里其实**早就**有一行「本局禁用」（`GameScene` 生成状态面板 HTML 处），所以缺的不是信息而是**可见时机**：祝福池里少了什么，玩家只能察觉「怎么一直没出 X」。改成把名单直接写进祝福面板副标题 —— 那正是玩家做抉择的当口。实测 `选择一项祝福 · 本局禁用：晶格冲击、共振冲刺`。**与清单原设想的差异**：清单要的是「显示 N 个 + 点击看清单」，这里直接给名字 —— `runDisabledCount` 恒为 2，两个名字排一行不撑破副标题，而「计数还要再点一次」反而多一层。禁用列表为空时回落到原文案「选择一项祝福」 | 本次提交 |
 | **P0-6** 选卡冻结 | ✅ `update()` 在 `upgradeSelectionActive` 时 early-return（连带停掉过载自损 / DoT / 温度），粒子与引导仍在其上推进 | `0abf682` |
 | **P2-8** 数字键快选 | ✅ 1/2/3 直选 + Esc 跳过；监听挂 window，故**所有**把 `upgradeSelectionActive` 置回 false 的路径都成对摘除 | `9f10fe4` |
 
@@ -398,7 +399,6 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
   而留着一个玩家躲不掉、也学不会的伤害。**仍需实机手感确认**。
 - **P0-5 门上奖励**：牵动 `RoomDef` 数据结构与撤离点预览，工作量「中」，属下一轮
 - **P1-1 稀有度掷骰**：直接改变构筑强度分布，需配合 P1-2 一起设计
-- **P1-10**：纯视觉类，风险低
 
 **验证方式的说明**：P0-3 与 P1-9 都用「直接驱动 `updateEnemies(delta)` 步进 + 读敌人状态」来断言，
 而非只看画面。`updateEnemies` 的 `delta` 单位是**秒**不是毫秒（踩过一次坑）。P0-3 的预警圈有截图佐证；
@@ -418,13 +418,16 @@ LOADING(5)、`browser.screenshot` 也报「需要可见标签页」——三件�
 的接线单独断言为 `hurtFlashTimer === 0.7`（玩家未死时）。另注：`damagePlayer` 在 `result.died`
 时会早退，所以死亡那一击不闪红 —— 这是想要的行为。
 
-要做真正的实机验证，需要先让桌面浏览器窗口可见。
+所以后续几项的实机验证都不再依赖截图，改为**直接读被测对象的运行时状态**——下两条即此法的结果。
 
 P1-8 沿用同一套绕法：用动态 `import('/src/game/state/GameState.ts')` 拿到与游戏同一个
 `gameState` 单例（直接 `window` 上没有暴露），设温度后同步调 `refresh()` 读真实 Text 的
 文字与颜色 —— 50°/90° 无读秒，96° 显示 `熔毁 12.3s`（`#FF4D6D`），2.6s / 0.4s 时转白
 `#FFFFFF`。另注：**页面里没有 `gameState` / `Phaser` 这些全局**，它们都是模块导入，
 在 evaluate 里直接用会 `ReferenceError`，要走 `window.__game` 或动态 import。
+
+P1-10 是 DOM 层，最直接：调 `showUpgradeSelection()` 后读 `#upgrade-subtitle`.textContent，
+断言禁用非空时为 `选择一项祝福 · 本局禁用：晶格冲击、共振冲刺`、置空时回落为 `选择一项祝福`。
 
 ---
 
