@@ -93,6 +93,14 @@ export interface GameState {
    * 撤离成功写入局外仓库，死亡则全部丢失。
    */
   carriedGear: string[];
+  /**
+   * 局内货币「催化券」：战斗/宝箱/事件产出，局内商店与事件选项消费，结算时折算成样本。
+   * 与局外的 `ProfileState.samples` 分开——它必须**死在撤离结算那一步**，
+   * 否则就变成了第二套局外货币，投资系统也就没有存在意义了。
+   */
+  coupons: number;
+  /** 本局已触发过的事件 id（供 `once` 事件与事件链判定） */
+  seenEvents: string[];
 }
 
 export const gameState: GameState = {
@@ -140,7 +148,11 @@ export const gameState: GameState = {
   /** 已拥有的觉醒祝福 id（每局各一次） */
   ownedSpecialBoons: [],
   /** 进化等级（染料 id → 等级） */
-  dyeEvolution: {}
+  dyeEvolution: {},
+  /** 局内货币「催化券」（见接口注释） */
+  coupons: 0,
+  /** 本局已触发过的事件 id */
+  seenEvents: []
 };
 
 /** 获得自由电子，自动封顶。 */
@@ -220,6 +232,8 @@ export function resetRun(): void {
     dyeEvolution: {},
     dyeSlots: [{ dyeId: null, purity: 1 }, { dyeId: null, purity: 0.5 }, { dyeId: null, purity: 0.25 }],
     bagCapacity: BASE_BAG_CAPACITY,
-    carriedGear: []
+    carriedGear: [],
+    coupons: 0,
+    seenEvents: []
   });
 }
