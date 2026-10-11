@@ -163,7 +163,12 @@ export const BALANCE = {
      *   压迫感，免得拉扯成了无脑解法。
      */
     meleeWindupSeconds: 0.35,
-    contactWindupSeconds: 0.3
+    contactWindupSeconds: 0.3,
+    /**
+     * 坦克冲撞前摇（秒）。冲撞原先没有任何预兆，玩家只能靠"它离我 120px 以上"这种
+     * 距离规则去反推，而不是看画面。前摇期立一条指向线并钉在原地蓄势。
+     */
+    tankChargeWindupSeconds: 0.5
   },
   /** 反应层数（借鉴 bonds 层系统）：电子转移累积催化层数，全局线性加成 + 里程碑掉落 */
   reaction: {

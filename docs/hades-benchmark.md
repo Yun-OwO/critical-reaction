@@ -353,7 +353,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-6** | **命中白闪改为「描边提亮 + 短促形变」**：弃用 ADD 白圆（`4520-4523`），改为敌人描边色 `lerp` 到白 + `scale` 短促脉冲（已有 `baseScale * 1.14 → baseScale` 的 tween 可直接复用） | 代码自己在 `4666` 已发现「ADD 混合下 setTint 几乎不可见」。对「深色底 + 明亮描边」风格，ADD 白圆会把描边洗掉，命中瞬间目标反而更难看清 | `GameScene.ts` `registerHit`(4507) / `damageEnemy`(5321) | **小** |
 | **P1-7** | **房间清空的节奏断点**：清空瞬间触发 BGM 层次切换（BgmManager 已有状态派生选曲）+ 祝福光团落地时的低频冲击音 + 门开启的机械音 | Hades 在清空节点有明显的节奏转换（战斗音乐退潮 + 奖励落地声）。本项目 `onRoomCleared`(1948-1978) 只有一声 ding + banner，400ms 后光团静默出现 | `GameScene.ts` `onRoomCleared`(1948) / `spawnBoonPickup`(2946)；`BgmManager.ts` | **小** |
 | **P1-8** | **熔毁倒计时 HUD 读秒**：温度 ≥95 时在 HUD 常驻显示剩余秒数（复用 `setTextSafe` 脏检查），并在最后 3s 加速脉冲 | 「可预期」硬要求。当前只有一条浮字（`1129`），玩家必须盯着才知道什么时候炸。过载的 2.5s 宽限期（`885-898`）是正确的正面模板 | `UIScene.ts` `refresh`(404)；`GameScene.ts` `meltdownTimer`(632) 暴露到 GameState | **小** |
-| **P1-9** | **坦克冲撞加视觉前摇**：`chargeActive` 期加地面冲锋路径线（红色细线，复用 `enemyBeamAttack` 的预警视觉） | 当前只有音效 + 屏震（`4741-4748`），玩家看不到它要冲向哪 | `GameScene.ts` `updateEnemies` tank 分支(4737-4770) | **小** |
+| ✅ **P1-9** | **坦克冲撞加视觉前摇**：`chargeActive` 之前插入一段蓄力期，立一条以敌人为原点、朝玩家实时对准的红色指向线，由宽收窄并脉冲提亮 | 当前只有音效 + 屏震（`chargeActive` 分支），玩家看不到它要冲向哪 | `GameScene.ts` `updateEnemies` tank 分支 | **小** |
 | **P1-10** | **每局禁用祝福对玩家可见**：局开始时在 HUD 或状态面板显示「本局禁用：N 个」，点击可查看清单；或改为局前抽签展示 | Hades 的 Pact of Punishment 把限制明码标价。静默禁用（`upgrades.ts:252-259`）会让玩家困惑且无法决策 | `GameScene.ts` `create`(651) 禁用抽样处；`UIScene.ts` 状态面板 | **小** |
 | ✅ **P1-11** | **`pickBoons` 学派多样性真正生效**：`usedSchools` 当前只 `add` 不筛选（`upgrades.ts:273`），补上「优先不同学派」的过滤 | 注释声称保证学派多样性，实际没做。三张卡同学派会让「四大化学学派」的主题感崩塌 | `upgrades.ts` `pickBoons`(265)；单测 `tests/upgrades.test.ts` 补断言 | **小** |
 
@@ -370,7 +370,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | ✅ **P2-7** | **质量分档职责划分**：明确 `utils/Quality.ts` 的 `QualityTier` + `LoadMonitor` 为运行时权威（自适应负载降档），`visual/quality.ts` 的 `getVisualProfile()` 只管 Bloom/辉光等静态档位；`LoadMonitor.sample()` 接进 `update()`，`FxPool.setLoadLevel()` 随之联动 | 两套并存会出现「用户设高质量、负载监控又降到低」的冲突。`MAX_PARTICLES`（low 360 / medium 800 / high 1400）× `LOAD_PARTICLES`（1 / 0.75 / 0.55 / 0.4）的两级缩放模型已经写好，只差接线与职责划分 | `utils/Quality.ts`；`visual/quality.ts:19-24`；`GameScene.ts` `update()` | 小 |
 | ✅ **P2-8** | 祝福选择时支持键盘/触屏数字键 1-2-3 快选 | 当前只能点击卡片。PC 端高频操作 | `GameScene.ts` `showUpgradeSelection`(2008) | 小 |
 
-### 附：完成记录（2026-10-11，对应提交 `69ac83e` … 本次提交）
+### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `c27aff6` 及其后）
 
 状态标记：✅ 完成 ／ 🟡 部分完成 ／ 未标记 = 未动。
 
@@ -382,7 +382,8 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-11** 学派多样性 | ✅ 三级候选收敛（槽位+学派 → 槽位 → 学派 → 兜底），每级都是上一级超集故槽位优先语义不削弱。单测断言撞车率 <5%（旧实现约 60%） | `468d483` |
 | **P1-3** 门去重 | 🟡 已做**加权去重抽样**（同类型最多一扇，三扇门必然互不相同）。**未做** combat 降权 / shop·treasure·event 提权 / extraction 条件门控 —— 属平衡判断，无实机验证不擅动 | `468d483` |
 | **P0-2** 无敌帧 | ✅ `dashMotionTimer > 0` 全免疫 + `BALANCE.player.hurtIFrameSeconds`(0.7s) 受伤窗口，窗口内不重复结算也不重复播 `playerHurt` | `0abf682` |
-| **P0-3** 近战怪前摇 | ✅ 新增 `windupTimer/windupRange/windupMark` 三字段 + `startMeleeWindup/cancelMeleeWindup/resolveMeleeWindup`。两条伤害路径都改为「先亮红圈、到点重新测距才结算」：追击者范围爆 0.35s（半径 100）、贴身接触伤害 0.3s（半径 76，仍保留贴脸压迫感）。前摇期**照常追击**（否则拉开距离就永远不会被打中）但不开新攻击；被僵直 / 被击杀会打断前摇。时长进 `BALANCE.combat` 便于调参 | 本次提交 |
+| **P0-3** 近战怪前摇 | ✅ 新增 `windupTimer/windupRange/windupMark` 三字段 + `startMeleeWindup/cancelMeleeWindup/resolveMeleeWindup`。两条伤害路径都改为「先亮红圈、到点重新测距才结算」：追击者范围爆 0.35s（半径 100）、贴身接触伤害 0.3s（半径 76，仍保留贴脸压迫感）。前摇期**照常追击**（否则拉开距离就永远不会被打中）但不开新攻击；被僵直 / 被击杀会打断前摇。时长进 `BALANCE.combat` 便于调参 | `c27aff6` |
+| **P1-9** 坦克冲撞前摇 | ✅ 新增 `chargeWindup/chargeMark` + `startChargeWindup/updateChargeWindup/endChargeWindup`。与清单原设想**不同**：原写的是「`chargeActive` 期画冲锋路径线」，即在已经冲出去之后画线 —— 那只能说明它正往哪冲，说明不了它**要**冲。改成冲锋**之前**蓄力 0.5s 并立指向线，期间钉在原地不再追击。期间玩家冲进 120px / 跑出 500px 会作废前摇（与发动条件一致）并留 0.6s 重试间隔；被僵直 / 被击杀同样打断。原有时序未动：`chargeTimer = 0.6` 仍在同帧被扣一次（有效冲刺约 0.3s），改前改后一致 | 本次提交 |
 | **P0-6** 选卡冻结 | ✅ `update()` 在 `upgradeSelectionActive` 时 early-return（连带停掉过载自损 / DoT / 温度），粒子与引导仍在其上推进 | `0abf682` |
 | **P2-8** 数字键快选 | ✅ 1/2/3 直选 + Esc 跳过；监听挂 window，故**所有**把 `upgradeSelectionActive` 置回 false 的路径都成对摘除 | `9f10fe4` |
 
@@ -395,7 +396,13 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
   而留着一个玩家躲不掉、也学不会的伤害。**仍需实机手感确认**。
 - **P0-5 门上奖励**：牵动 `RoomDef` 数据结构与撤离点预览，工作量「中」，属下一轮
 - **P1-1 稀有度掷骰**：直接改变构筑强度分布，需配合 P1-2 一起设计
-- **P1-5 / P1-8 / P1-9 / P1-10**：纯 HUD / 视觉前摇类，风险低，可作为下一轮起点
+- **P1-5 / P1-8 / P1-10**：纯 HUD / 视觉类，风险低，可作为下一轮起点
+
+**验证方式的说明**：P0-3 与 P1-9 都用「直接驱动 `updateEnemies(delta)` 步进 + 读敌人状态」来断言，
+而非只看画面。`updateEnemies` 的 `delta` 单位是**秒**不是毫秒（踩过一次坑）。P0-3 的预警圈有截图佐证；
+P1-9 完成时桌面浏览器窗口已不可见、拿不到截图，只做了状态追踪（指向线生成 → 跟随玩家 → 发动时销毁 →
+击杀/僵直/清场三条清理路径都置 `chargeMark = null`）。指向线本身是一个 Rectangle + 两个 tween，构造与
+已在画面上验证过的 `enemyBeamAttack` 预警一致，但**外观未实机确认**。
 
 ---
 

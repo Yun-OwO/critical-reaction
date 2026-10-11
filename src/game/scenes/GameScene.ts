@@ -77,6 +77,9 @@ interface RuntimeEnemy {
   orbitArcs: Phaser.GameObjects.Arc[];
   chargeTimer: number;
   chargeActive: boolean;
+  /** 坦克冲撞前摇：剩余秒数 / 指向线（>0 时钉在原地蓄势，不开新动作）。 */
+  chargeWindup: number;
+  chargeMark: Phaser.GameObjects.Rectangle | null;
   /** 近战攻击前摇：剩余秒数 / 判定半径 / 预警圈（>0 时该敌人停在蓄力中）。 */
   windupTimer: number;
   windupRange: number;
@@ -1740,6 +1743,8 @@ export class GameScene extends Phaser.Scene {
       orbitArcs: [],
       chargeTimer: 4 + Math.random() * 2,
       chargeActive: false,
+      chargeWindup: 0,
+      chargeMark: null,
       windupTimer: 0,
       windupRange: 0,
       windupMark: null,
@@ -3390,6 +3395,8 @@ export class GameScene extends Phaser.Scene {
       enemy.eliteRing?.destroy();
       enemy.windupMark?.destroy();
       enemy.windupMark = null;
+      enemy.chargeMark?.destroy();
+      enemy.chargeMark = null;
     });
     this.enemies = [];
     if (this.boss) {
@@ -4806,6 +4813,49 @@ export class GameScene extends Phaser.Scene {
     this.playTone(220, 0.12, 'square', 0.06);
   }
 
+  /**
+   * 坦克冲撞的视觉前摇（Hades 复盘 P1-9）。冲撞原先毫无预兆：`chargeTimer` 一到，
+   * 敌人就凭空朝玩家射出去，玩家只能靠「它离我 120px 以上」这种距离规则去反推威胁，
+   * 而不是看画面 —— 与近战前摇是同一条公平性问题，只是换了个表现形式。
+   *
+   * 这里立一条以敌人为原点、朝玩家伸出的指向线，由宽收窄并脉冲提亮，期间坦克钉在
+   * 原地蓄势（见 updateEnemies 的 `chargeWindup > 0` 分支）。一眼能读出三件事：
+   * 要冲、往哪冲、还剩多久。对象开销 1 个 Rectangle + 2 个 tween，播完即毁。
+   */
+  private startChargeWindup(enemy: RuntimeEnemy): void {
+    enemy.chargeWindup = BALANCE.combat.tankChargeWindupSeconds;
+    const mark = this.add.rectangle(enemy.view.x, enemy.view.y, 300, 7, 0xff4d6d, 0.45)
+      .setOrigin(0, 0.5)                  // 原点压在敌人身上，长度从敌人向前伸出
+      .setDepth(103)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setStrokeStyle(1.5, 0xffd7de, 0.55);
+    enemy.chargeMark = mark;
+    this.updateChargeWindup(enemy);
+    // 收窄 = 蓄力收束，与近战前摇的收缩圈、射线攻击的线束收缩同一套视觉语言
+    this.tweens.add({ targets: mark, scaleY: { from: 3.4, to: 0.55 }, duration: enemy.chargeWindup * 1000, ease: 'Cubic.in' });
+    this.tweens.add({ targets: mark, alpha: { from: 0.3, to: 0.95 }, duration: enemy.chargeWindup * 500, yoyo: true, ease: 'Sine.inOut' });
+    this.playTone(90, enemy.chargeWindup, 'sawtooth', 0.05);
+  }
+
+  /** 前摇期间指向线实时对准玩家并跟随坦克位移；无指向线时是空操作。 */
+  private updateChargeWindup(enemy: RuntimeEnemy): void {
+    const mark = enemy.chargeMark;
+    if (!mark) return;
+    mark.setPosition(enemy.view.x, enemy.view.y).setRotation(
+      Phaser.Math.Angle.Between(enemy.view.x, enemy.view.y, this.player.x, this.player.y)
+    );
+  }
+
+  /** 收掉指向线：发动瞬间、前摇被取消、被击杀 / 被僵直打断都要走这里。无指向线时是空操作。 */
+  private endChargeWindup(enemy: RuntimeEnemy): void {
+    enemy.chargeWindup = 0;
+    const mark = enemy.chargeMark;
+    enemy.chargeMark = null;
+    if (!mark) return;
+    this.tweens.killTweensOf(mark);
+    this.tweens.add({ targets: mark, alpha: 0, duration: 110, onComplete: () => mark.destroy() });
+  }
+
   private updateEnemies(delta: number): void {
     this.enemies.forEach((enemy) => {
       // 到点的合并伤害数字先吐：必须放在僵直 / 不可见的早退之前，
@@ -4814,8 +4864,9 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.view.visible) return;
       if (enemy.stunTimer > 0) {
         enemy.stunTimer -= delta;
-        // 被僵直时前摇作废：蓄力被打断了，不该在僵直结束后突然结算伤害
+        // 被僵直时前摇作废：蓄力被打断了，不该在僵直结束后突然结算伤害 / 冲撞出去
         if (enemy.windupTimer > 0) this.cancelMeleeWindup(enemy);
+        if (enemy.chargeWindup > 0) this.endChargeWindup(enemy);
         // ADD 混合下 setTint 几乎不可见，僵直改用 alpha 频闪表达
         enemy.view.setAlpha(0.5 + 0.5 * Math.abs(Math.sin(this.time.now * 0.02)));
         enemy.aura.setPosition(enemy.view.x, enemy.view.y);
@@ -4898,14 +4949,27 @@ export class GameScene extends Phaser.Scene {
         enemy.chargeTimer -= delta;
         if (enemy.chargeActive) {
           moveTo(0);
+        } else if (enemy.chargeWindup > 0) {
+          // 蓄力前摇：钉在原地不再追击，指向线实时重新对准玩家（玩家会走位）。
+          // 期间玩家冲进 120px 或跑出 500px → 走出它的冲刺带，前摇作废，
+          // 与发动条件保持一致，免得指着一个已经贴身的目标"要冲撞"。
+          enemy.chargeWindup -= delta;
+          this.updateChargeWindup(enemy);
+          if (distance < 120 || distance > 500) {
+            this.endChargeWindup(enemy);
+            enemy.chargeTimer = 0.6;                 // 重试间隔，免得原地反复抽搐
+          } else if (enemy.chargeWindup <= 0) {
+            this.endChargeWindup(enemy);
+            enemy.chargeActive = true;
+            enemy.chargeTimer = 0.6;
+            const angle = Phaser.Math.Angle.Between(enemy.view.x, enemy.view.y, this.player.x, this.player.y);
+            enemy.pushX += Math.cos(angle) * 600;
+            enemy.pushY += Math.sin(angle) * 600;
+            this.cameraShake(45, 0.002);
+            this.playTone(120, 0.15, 'sawtooth', 0.06);
+          }
         } else if (enemy.chargeTimer <= 0 && distance < 500 && distance > 120) {
-          enemy.chargeActive = true;
-          enemy.chargeTimer = 0.6;
-          const angle = Phaser.Math.Angle.Between(enemy.view.x, enemy.view.y, this.player.x, this.player.y);
-          enemy.pushX += Math.cos(angle) * 600;
-          enemy.pushY += Math.sin(angle) * 600;
-          this.cameraShake(45, 0.002);
-          this.playTone(120, 0.15, 'sawtooth', 0.06);
+          this.startChargeWindup(enemy);
         } else {
           moveTo(70);
         }
@@ -5504,6 +5568,7 @@ export class GameScene extends Phaser.Scene {
     this.flushDamageNumber(target);
     // 蓄力被打断：预警圈跟着一起收掉，不能留一个"要打人"的红圈在空地上
     this.cancelMeleeWindup(target);
+    this.endChargeWindup(target);
     target.layerPips.forEach((pip) => pip.destroy());
     target.eliteRing?.destroy();
     target.eliteRing = null;
