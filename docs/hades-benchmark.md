@@ -334,12 +334,12 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 
 | # | 做什么 | 为什么（对应 Hades 哪条机制） | 改哪个文件 | 工作量 |
 |---|---|---|---|---|
-| **P0-1** | **把 `GameScene` 的每命中路径接到已有的 `FxPool`**（`src/game/utils/Fx.ts`）。`FxPool` 已提供 `burst/sparkCone/ring/particle` 高层接口 + 硬上限 FIFO 逐出 + 零分配 opts，**缺的只是接线**（`scenes/` 下尚无 import）。按优先级：① `registerHit`(4507) 的 6 火花 → `burst`；② `impactHitAt`(3957) 的 10 火花 + 冲击环 → `sparkCone` + `ring`，切割 Graphics 改为预建池；③ `spawnElectronFlow`(4566) 的电子流 → `particle` 沿贝塞尔飞行；④ `damagePlayer`(5428) 受击飞散 → `burst`；⑤ `meleeAttack`(3904) 的 20ms 一条 trail → 单条预建弧线 Graphics 复用。**同时按 `FEEDBACK` tier 分配特效预算**：`normal` 只出 1 个火花簇 + 1 个环，`kill/elite/bossHit` 才出全套 | Hades 的常规命中反馈是「白闪 + 击退 + 音」，重特效只留给精英/Boss/击杀。本项目 `feedback.ts` 自己写下了这条层级原则，但特效产出没跟上：单次挥斩 ≈ 25 对象 + 30+ tween，8 敌命中的 360° 特殊 ≈ 88 对象。**池子已在，接线即可** | `GameScene.ts` `meleeAttack`(3785) / `impactHitAt`(3957) / `registerHit`(4507) / `spawnElectronFlow`(4566) / `damagePlayer`(5390) / `killEnemy`(5342)；`create()` 建 `FxPool` 实例并在 `update()` 末尾 `fx.update(delta)` | **中** |
-| **P0-2** | **给冲刺加无敌帧**：`dashMotionTimer > 0` 期间免疫全部伤害（含 DoT、陷阱、环境）；同时给 `damagePlayer()` 加「受伤后 0.6–0.8s 无敌窗口」，窗口内不重复跑 `playerHurt` 反馈 | Hades：*"While Dashing, Zagreus is immune to all damage."* 冲刺是 Hades 手感的根——没有它玩家不敢贴脸输出。本项目近战怪（360° 挥斩是主输出）目前毫无切入资本 | `GameScene.ts` `doDash`(5576) / `damagePlayer`(5390)；新增字段 `playerInvulnTimer`；`balance.ts` 加 `dash.iframeSeconds`、`player.hurtIFrameSeconds` | **小** |
+| 🟡 **P0-1** | **把 `GameScene` 的每命中路径接到已有的 `FxPool`**（`src/game/utils/Fx.ts`）。`FxPool` 已提供 `burst/sparkCone/ring/particle` 高层接口 + 硬上限 FIFO 逐出 + 零分配 opts，**缺的只是接线**（`scenes/` 下尚无 import）。按优先级：① `registerHit`(4507) 的 6 火花 → `burst`；② `impactHitAt`(3957) 的 10 火花 + 冲击环 → `sparkCone` + `ring`，切割 Graphics 改为预建池；③ `spawnElectronFlow`(4566) 的电子流 → `particle` 沿贝塞尔飞行；④ `damagePlayer`(5428) 受击飞散 → `burst`；⑤ `meleeAttack`(3904) 的 20ms 一条 trail → 单条预建弧线 Graphics 复用。**同时按 `FEEDBACK` tier 分配特效预算**：`normal` 只出 1 个火花簇 + 1 个环，`kill/elite/bossHit` 才出全套 | Hades 的常规命中反馈是「白闪 + 击退 + 音」，重特效只留给精英/Boss/击杀。本项目 `feedback.ts` 自己写下了这条层级原则，但特效产出没跟上：单次挥斩 ≈ 25 对象 + 30+ tween，8 敌命中的 360° 特殊 ≈ 88 对象。**池子已在，接线即可** | `GameScene.ts` `meleeAttack`(3785) / `impactHitAt`(3957) / `registerHit`(4507) / `spawnElectronFlow`(4566) / `damagePlayer`(5390) / `killEnemy`(5342)；`create()` 建 `FxPool` 实例并在 `update()` 末尾 `fx.update(delta)` | **中** |
+| ✅ **P0-2** | **给冲刺加无敌帧**：`dashMotionTimer > 0` 期间免疫全部伤害（含 DoT、陷阱、环境）；同时给 `damagePlayer()` 加「受伤后 0.6–0.8s 无敌窗口」，窗口内不重复跑 `playerHurt` 反馈 | Hades：*"While Dashing, Zagreus is immune to all damage."* 冲刺是 Hades 手感的根——没有它玩家不敢贴脸输出。本项目近战怪（360° 挥斩是主输出）目前毫无切入资本 | `GameScene.ts` `doDash`(5576) / `damagePlayer`(5390)；新增字段 `playerInvulnTimer`；`balance.ts` 加 `dash.iframeSeconds`、`player.hurtIFrameSeconds` | **小** |
 | **P0-3** | **近战怪 `chaser` 加 0.4–0.5s 攻击前摇**：蓄力期敌人描边提亮 + 脚下红色收缩圈（复用 `enemyBeamAttack` 的预警范式），前摇结束才判定伤害；伤害数字/红圈不再事后补播 | Hades 的敌人出手前会**摆 pose + 白色 overlay**，玩家读得懂就能躲。本项目 `chaser` 是 `distance < 100` 直接 `damagePlayer()`（4771-4782），玩家无法提前得知也无法学习规避——违反「反馈可预期可学习」 | `GameScene.ts` `updateEnemies`(4661) 的 chaser 分支；预警圈走 P0-1 的复用池 | **小** |
-| **P0-4** | **伤害数字按敌人合并**：每个 `RuntimeEnemy` 记 `lastDamageTextAt` 与 `pendingDamageSum`，80–120ms 窗口内累加只出一条；破层 / 击杀 / 暴击 / 大额（≥阈值）立即出独立大号浮字并清空累加 | Hades 干脆不显示伤害数字，靠血条分段 + 白闪次数传达。本项目的电子夺取量必须可见（这是核心资源），但当前激光每 60ms 一 tick、DoT 每 0.5s 一跳都会各出一条，密集战斗下数字会盖住战场 | `GameScene.ts` `RuntimeEnemy` 接口(63-95)、`registerHit`(4507)、`showDamageNumber`(4584)、`updateEnemies` DoT 分支(4686)、`spinSlash`(4262) | **小** |
+| 🟡 **P0-4** | **伤害数字按敌人合并**：每个 `RuntimeEnemy` 记 `lastDamageTextAt` 与 `pendingDamageSum`，80–120ms 窗口内累加只出一条；破层 / 击杀 / 暴击 / 大额（≥阈值）立即出独立大号浮字并清空累加 | Hades 干脆不显示伤害数字，靠血条分段 + 白闪次数传达。本项目的电子夺取量必须可见（这是核心资源），但当前激光每 60ms 一 tick、DoT 每 0.5s 一跳都会各出一条，密集战斗下数字会盖住战场 | `GameScene.ts` `RuntimeEnemy` 接口(63-95)、`registerHit`(4507)、`showDamageNumber`(4584)、`updateEnemies` DoT 分支(4686)、`spinSlash`(4262) | **小** |
 | **P0-5** | **门上显示奖励**：`RoomDef` 增加 `preview` 字段（奖励类型 + 数值/学派/稀有度/撤离点类型与温度门槛），`spawnDoors` 在门图标上方渲染第二行奖励徽标；撤离房必须显示**撤离点种类与可用条件** | Hades：*"The reward for each chamber is visible on its entrance door."* 选择发生在进门前。本项目当前 `spawnDoors`(2682-2711) 只画房间类型图标，「选门」退化成「选房间类型」。撤离点倍率 1×/1.4×/2×/2.5× 是最该前置的信息 | `src/game/data/rooms.ts` `createRoom`(244) / `generateRoomDoors`(318)；`GameScene.ts` `spawnDoors`(2682) / `refreshExtractionDef`(6601) | **中** |
-| **P0-6** | **把 `upgradeSelectionActive` 期间的战斗暂停接上**：祝福选择 overlay 打开时冻结 `update` 的战斗分支（保留相机与 UI 动画） | Hades 在这点上**是反面教材**（查看祝福不暂停，社区明确抱怨过）。本项目选择发生在房间清空后，风险低，但 Boss 房觉醒祝福与撤离前的空档会让玩家暴露在 `updateExtraction`(6615) 每 3s 生成的追击者火力下 | `GameScene.ts` `update`(865) 加 early-return；`selectUpgrade`(2114) / `closeBoonOverlay`(2080) 负责恢复 | **小** |
+| ✅ **P0-6** | **把 `upgradeSelectionActive` 期间的战斗暂停接上**：祝福选择 overlay 打开时冻结 `update` 的战斗分支（保留相机与 UI 动画） | Hades 在这点上**是反面教材**（查看祝福不暂停，社区明确抱怨过）。本项目选择发生在房间清空后，风险低，但 Boss 房觉醒祝福与撤离前的空档会让玩家暴露在 `updateExtraction`(6615) 每 3s 生成的追击者火力下 | `GameScene.ts` `update`(865) 加 early-return；`selectUpgrade`(2114) / `closeBoonOverlay`(2080) 负责恢复 | **小** |
 
 ### P1 — 明显提升品质
 
@@ -347,7 +347,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 |---|---|---|---|---|
 | **P1-1** | **稀有度改为掷骰**：`BoonDef.rarity` 改为「基础稀有度/权重上限」，抽取时按权重表（common 55 / rare 28 / epic 13 / mythic 4）掷出实际稀有度，存进 `EquippedBoon`；`rarityScale` 四档数值终于全部生效 | Hades 的稀有度是掷出来的（*"roll for rarity"*），同一祝福在不同局有强度方差——这是构筑重玩性的主要来源。本项目 `rarityScale` 准备了四档但只有写死那档会被读到（`formatBoonDesc:227-241`） | `upgrades.ts`(25-33, 227-241)；`GameState.ts` `EquippedBoon`(16-24)；`GameScene.ts` `showUpgradeSelection`(2008) / `boonRarityValue`(2232) | **中** |
 | **P1-2** | **化学组合祝福（Duo 等价物）**：新增 6–8 个「A 学派 + B 学派 → 反应」的组合祝福，`requires: string[]` 前置（如 `['h-atk-overload','o-atk-ignite']` → 「燃烧链式反应」）；两个前置都持有才进卡池 | Hades 的 Duo boons 要求两个神各出一个核心，玩家会**为拿 Duo 而有意识地先凑组合**——这是「规划感」的唯一来源。化学主题天然支持这个逻辑，比 Hades 更自洽 | `upgrades.ts` 新增 `DUO_POOL` + `requires`；`GameScene.ts` `rollBoonChoices`(2102) 加前置判定 | **中** |
-| **P1-3** | **普通房 3 扇门去重 + 加权**：确保三扇门类型互不相同；给 `combat` 降权、`shop/treasure/event` 提权，并对 `extraction` 做条件门控 | Hades 的三扇门给你三种不同的理由，当前实现（`rooms.ts:352-357`）独立随机抽 3 次，可能三扇都是战斗房 | `rooms.ts` `generateRoomDoors`(318)；单测 `tests/rooms.test.ts` 补断言 | **小** |
+| 🟡 **P1-3** | **普通房 3 扇门去重 + 加权**：确保三扇门类型互不相同；给 `combat` 降权、`shop/treasure/event` 提权，并对 `extraction` 做条件门控 | Hades 的三扇门给你三种不同的理由，当前实现（`rooms.ts:352-357`）独立随机抽 3 次，可能三扇都是战斗房 | `rooms.ts` `generateRoomDoors`(318)；单测 `tests/rooms.test.ts` 补断言 | **小** |
 | **P1-4** | **跨局容错（God Mode 等价物）**：新增「稳定度」档案值，每次死亡 +1，提供可开关的减伤（如 每点 -1.5%，封顶 30%），设置里明码显示当前值与效果；做成**显式可关** | Hades God Mode：20% 起、每次死亡 +2%、封顶 80%，可随时开关无惩罚。精髓是**把「死了 N 次」显式结算成玩家可见的数值**。本项目的反应催化（`GameState.ts:77-78`）是同构机制但是局内的，死亡清零 | `ProfileState.ts`(24-65)；`SettingsState.ts`；`GameScene.ts` `damagePlayer`(5390) / `playerDeath`(5483) | **小** |
 | **P1-5** | **受伤后的屏幕边缘红闪**：`damagePlayer` 触发一次红色 vignette 脉冲（复用 `UIScene.refreshDangerVignette` 的常驻对象，做一次性强度叠加而非新建） | Hades 受伤时有明确的屏幕边缘红闪。本项目 `dangerVignette` 已是常驻对象（`UIScene.ts:94-95`），只需加一次脉冲请求——**零新增对象**，与 P0-1 同向 | `UIScene.ts` `refreshDangerVignette`(550)；EventBus 加 `damage` 强度参数 | **小** |
 | **P1-6** | **命中白闪改为「描边提亮 + 短促形变」**：弃用 ADD 白圆（`4520-4523`），改为敌人描边色 `lerp` 到白 + `scale` 短促脉冲（已有 `baseScale * 1.14 → baseScale` 的 tween 可直接复用） | 代码自己在 `4666` 已发现「ADD 混合下 setTint 几乎不可见」。对「深色底 + 明亮描边」风格，ADD 白圆会把描边洗掉，命中瞬间目标反而更难看清 | `GameScene.ts` `registerHit`(4507) / `damageEnemy`(5321) | **小** |
@@ -355,7 +355,7 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P1-8** | **熔毁倒计时 HUD 读秒**：温度 ≥95 时在 HUD 常驻显示剩余秒数（复用 `setTextSafe` 脏检查），并在最后 3s 加速脉冲 | 「可预期」硬要求。当前只有一条浮字（`1129`），玩家必须盯着才知道什么时候炸。过载的 2.5s 宽限期（`885-898`）是正确的正面模板 | `UIScene.ts` `refresh`(404)；`GameScene.ts` `meltdownTimer`(632) 暴露到 GameState | **小** |
 | **P1-9** | **坦克冲撞加视觉前摇**：`chargeActive` 期加地面冲锋路径线（红色细线，复用 `enemyBeamAttack` 的预警视觉） | 当前只有音效 + 屏震（`4741-4748`），玩家看不到它要冲向哪 | `GameScene.ts` `updateEnemies` tank 分支(4737-4770) | **小** |
 | **P1-10** | **每局禁用祝福对玩家可见**：局开始时在 HUD 或状态面板显示「本局禁用：N 个」，点击可查看清单；或改为局前抽签展示 | Hades 的 Pact of Punishment 把限制明码标价。静默禁用（`upgrades.ts:252-259`）会让玩家困惑且无法决策 | `GameScene.ts` `create`(651) 禁用抽样处；`UIScene.ts` 状态面板 | **小** |
-| **P1-11** | **`pickBoons` 学派多样性真正生效**：`usedSchools` 当前只 `add` 不筛选（`upgrades.ts:273`），补上「优先不同学派」的过滤 | 注释声称保证学派多样性，实际没做。三张卡同学派会让「四大化学学派」的主题感崩塌 | `upgrades.ts` `pickBoons`(265)；单测 `tests/upgrades.test.ts` 补断言 | **小** |
+| ✅ **P1-11** | **`pickBoons` 学派多样性真正生效**：`usedSchools` 当前只 `add` 不筛选（`upgrades.ts:273`），补上「优先不同学派」的过滤 | 注释声称保证学派多样性，实际没做。三张卡同学派会让「四大化学学派」的主题感崩塌 | `upgrades.ts` `pickBoons`(265)；单测 `tests/upgrades.test.ts` 补断言 | **小** |
 
 ### P2 — 锦上添花
 
@@ -367,8 +367,31 @@ Hades 的祝福系统（1.0 版本，Hades II 结构类似）：
 | **P2-4** | 连杀/连续命中 HUD 微反馈：连续命中 N 次不受伤，HUD 角落累计计数，受伤归零 | 让「打得干净」这件事可见。纯 HUD 文本，走 `setTextSafe` | `UIScene.ts` | 小 |
 | **P2-5** | 冲刺穿越弹幕：`dashMotionTimer > 0` 时不与敌方弹幕结算（P0-2 的自然延伸，可一并做） | Hades 冲刺可穿过弹幕与敌人本体 | `GameScene.ts` `updateEnemyProjectiles`(5670) | 小 |
 | **P2-6** | 每层换场过渡：进新层时一次 600ms 的全屏色带扫过 + 层名大字 | Hades 用楼梯过渡房间。本项目是 fadeOut/fadeIn，缺「进入新区域」的仪式感 | `GameScene.ts` `enterRoom`(1759) | 小 |
-| **P2-7** | **质量分档职责划分**：明确 `utils/Quality.ts` 的 `QualityTier` + `LoadMonitor` 为运行时权威（自适应负载降档），`visual/quality.ts` 的 `getVisualProfile()` 只管 Bloom/辉光等静态档位；`LoadMonitor.sample()` 接进 `update()`，`FxPool.setLoadLevel()` 随之联动 | 两套并存会出现「用户设高质量、负载监控又降到低」的冲突。`MAX_PARTICLES`（low 360 / medium 800 / high 1400）× `LOAD_PARTICLES`（1 / 0.75 / 0.55 / 0.4）的两级缩放模型已经写好，只差接线与职责划分 | `utils/Quality.ts`；`visual/quality.ts:19-24`；`GameScene.ts` `update()` | 小 |
-| **P2-8** | 祝福选择时支持键盘/触屏数字键 1-2-3 快选 | 当前只能点击卡片。PC 端高频操作 | `GameScene.ts` `showUpgradeSelection`(2008) | 小 |
+| ✅ **P2-7** | **质量分档职责划分**：明确 `utils/Quality.ts` 的 `QualityTier` + `LoadMonitor` 为运行时权威（自适应负载降档），`visual/quality.ts` 的 `getVisualProfile()` 只管 Bloom/辉光等静态档位；`LoadMonitor.sample()` 接进 `update()`，`FxPool.setLoadLevel()` 随之联动 | 两套并存会出现「用户设高质量、负载监控又降到低」的冲突。`MAX_PARTICLES`（low 360 / medium 800 / high 1400）× `LOAD_PARTICLES`（1 / 0.75 / 0.55 / 0.4）的两级缩放模型已经写好，只差接线与职责划分 | `utils/Quality.ts`；`visual/quality.ts:19-24`；`GameScene.ts` `update()` | 小 |
+| ✅ **P2-8** | 祝福选择时支持键盘/触屏数字键 1-2-3 快选 | 当前只能点击卡片。PC 端高频操作 | `GameScene.ts` `showUpgradeSelection`(2008) | 小 |
+
+### 附：完成记录（2026-10-11，对应提交 `69ac83e` … `待提交`）
+
+状态标记：✅ 完成 ／ 🟡 部分完成 ／ 未标记 = 未动。
+
+| 项 | 结果 | 提交 |
+|---|---|---|
+| **P2-7** 质量分档职责划分 | ✅ `visual/quality.ts` 的 `VisualProfile` 新增 `maxParticles`（360/800/1400），粒子上限 = `maxParticles × LOAD_PARTICLES[负载档]`；`utils/Quality.ts` 只剩 `LoadMonitor` + `LOAD_PARTICLES` | `69ac83e` |
+| **P0-1** FxPool 接线 | 🟡 已接 `impactHitAt`（切割亮线/冲击环/溅射火花）、`registerHit`（冲击环 + 6 火花）、`spawnModeBurst`。**未接** ③ `spawnElectronFlow` ④ `damagePlayer` 受击飞散 ⑤ `meleeAttack` 的 20ms trail；「按 `FEEDBACK` tier 分配特效预算」也未做 | `69ac83e` / `b594d0a` |
+| **P0-4** 伤害数字合并 | 🟡 新增 `pendingDamageText/damageTextColor/damageTextFlushAt` + `addDamageNumber/flushDamageNumber`，110ms 定点窗口。已接 `registerHit` 与 DoT（文档点名的两个 spam 源）；**未接** `spinSlash`（低频，刻意保持即时） | `b594d0a` |
+| **P1-11** 学派多样性 | ✅ 三级候选收敛（槽位+学派 → 槽位 → 学派 → 兜底），每级都是上一级超集故槽位优先语义不削弱。单测断言撞车率 <5%（旧实现约 60%） | `468d483` |
+| **P1-3** 门去重 | 🟡 已做**加权去重抽样**（同类型最多一扇，三扇门必然互不相同）。**未做** combat 降权 / shop·treasure·event 提权 / extraction 条件门控 —— 属平衡判断，无实机验证不擅动 | `468d483` |
+| **P0-2** 无敌帧 | ✅ `dashMotionTimer > 0` 全免疫 + `BALANCE.player.hurtIFrameSeconds`(0.7s) 受伤窗口，窗口内不重复结算也不重复播 `playerHurt` | `0abf682` |
+| **P0-6** 选卡冻结 | ✅ `update()` 在 `upgradeSelectionActive` 时 early-return（连带停掉过载自损 / DoT / 温度），粒子与引导仍在其上推进 | `0abf682` |
+| **P2-8** 数字键快选 | ✅ 1/2/3 直选 + Esc 跳过；监听挂 window，故**所有**把 `upgradeSelectionActive` 置回 false 的路径都成对摘除 | `9f10fe4` |
+
+**额外修的一个粒子 bug（与本清单无关，实测发现）**：`FxOpts.rot` 的语义是「局部 +Y 旋转量」，屏幕方向 = `90° + rot`。`sparkCone` 原先写 `po.rot = a`，拖尾**垂直于**速度；`impactHitAt` 写 `core.rot = perp`，切割线**顺着**刀刃。两者都差 90°。已分别改为 `a - π/2` 与 `angle`，并用 0°/45°/90°/-45° 四根标尺截图实测确认。
+
+**未做的 P0/P1 及原因**：
+- **P0-3 近战怪前摇**：与已加的无敌帧叠加会显著改变难度，需实机调参，不宜盲目上线
+- **P0-5 门上奖励**：牵动 `RoomDef` 数据结构与撤离点预览，工作量「中」，属下一轮
+- **P1-1 稀有度掷骰**：直接改变构筑强度分布，需配合 P1-2 一起设计
+- **P1-5 / P1-8 / P1-9 / P1-10**：纯 HUD / 视觉前摇类，风险低，可作为下一轮起点
 
 ---
 

@@ -4020,9 +4020,9 @@ export class GameScene extends Phaser.Scene {
     this.playSfx('sfx-saber-swing', 0.7);
   }
 
-  /** 命中切割反馈：激光切割白线 + 冲击波环 + 沿剑刃方向火花 */
+  /** 命中切割反馈：激光切割白线 + 冲击波环 + 沿切割线方向火花 */
   /**
-   * 命中特效：切割亮线 + 冲击环 + 顺刀刃扇出的火花。
+   * 命中特效：切割亮线 + 冲击环 + 顺着切口扇出的火花。
    *
    * 全部走共享粒子池（utils/Fx.ts）。原先这里每次命中新建 1 Graphics + 1 Circle +
    * 10 个 Circle、各配一个 tween、播完再 destroy —— 一次 360° 挥斩命中 8 个敌人
@@ -4030,11 +4030,13 @@ export class GameScene extends Phaser.Scene {
    * 现在 0 个临时 GameObject、0 个 tween。
    */
   private impactHitAt(x: number, y: number, angle: number, color: number): void {
-    const perp = angle + Math.PI / 2;
-    // 切割亮线：白芯 + 彩色辉光两层光痕粒子，squash 成细长条并旋转到垂直于挥砍的方向
+    // 切割亮线：白芯 + 彩色辉光两层光痕粒子，squash 成细长条并旋转到垂直于挥砍的方向。
+    // 注意 rot 的语义：粒子 squash 后长轴是**局部 +Y**（竖直），屏幕方向 = 90° + rot，
+    // 所以要让长轴落在 perp 上就得写 `rot = angle`（而非 perp，那样会再转 90° 变成顺着刀刃）。
+    // 该约定已用 0°/45°/90°/-45° 四根标尺截图实测确认。
     const core = this.fx.opts();
     core.tint = 0xffffff;
-    core.rot = perp;
+    core.rot = angle;
     core.sx = 0.125;             // 24px 纹理 × s0=3 ≈ 72 长，squash 后约 9 宽
     core.s0 = 3;
     core.s1 = 3.5;
@@ -4044,7 +4046,7 @@ export class GameScene extends Phaser.Scene {
     this.fx.particle(FX_TEX.glow, x, y, core);
     const halo = this.fx.opts();
     halo.tint = color;
-    halo.rot = perp;
+    halo.rot = angle;
     halo.sx = 0.24;
     halo.s0 = 2.7;
     halo.s1 = 3.2;
@@ -4056,7 +4058,8 @@ export class GameScene extends Phaser.Scene {
     // 冲击波环
     this.fx.ring(x, y, 4, 28, color, 0.23);
 
-    // 沿剑刃方向飞溅的切割火花：锥角扇出 + 初速随机 + 阻力，读作"被溅飞"而非整齐放射
+    // 沿**切割线**（垂直于挥砍）方向飞溅的火花：锥角扇出 + 初速随机 + 阻力，
+    // 读作"被溅飞"而非整齐放射；方向与上面那条亮线一致，火花顺着切口甩出
     this.fx.sparkCone(x, y, angle + Math.PI / 2, 0.55, 9, color, { speed: 3.6, life: 0.22, size: 64 });
   }
 

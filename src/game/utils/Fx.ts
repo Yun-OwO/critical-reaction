@@ -261,7 +261,9 @@ export class FxPool {
       po.tint = Math.random() < 0.35 ? 0xffffff : tint;
       po.vx = Math.cos(a) * v;
       po.vy = Math.sin(a) * v * 0.7;
-      po.rot = a;                       // 光痕长轴对齐飞行方向
+      // 长轴是局部 +Y（竖直），屏幕方向 = 90° + rot，所以要对齐飞行方向 a 得减 90°。
+      // 用 0°/45°/90°/-45° 四根标尺截图实测确认过该约定，写成 a 会让拖尾垂直于速度。
+      po.rot = a - Math.PI / 2;
       po.sx = 0.34;                     // 压成细长条
       po.drag = 3.2;
       po.g = o.g ?? 0;
