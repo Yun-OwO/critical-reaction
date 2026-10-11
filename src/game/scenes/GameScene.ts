@@ -363,6 +363,8 @@ export class GameScene extends Phaser.Scene {
   private roomBoundaryColor = 0x67e8f9;
   private upgradeChoices: BoonDef[] = [];
   private upgradeSelectionActive = false;
+  /** 祝福面板的数字键快选监听（1/2/3 直选、Esc 跳过）。必须成对挂/摘，否则多次弹出会叠加。 */
+  private boonKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private boonPickup: { glow: Phaser.GameObjects.Arc; ring: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text; choices: BoonDef[] } | null = null;
   private ambientLight!: Phaser.GameObjects.Rectangle;
   // ---- 祝福状态（电子轨道系统） ----
@@ -672,6 +674,7 @@ export class GameScene extends Phaser.Scene {
     document.getElementById('status-close')?.addEventListener('click', () => this.toggleStatusPanel());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener('keydown', this.onStatusPanelKey);
+      this.removeBoonKeyHandler();
       if (this.statusPanelOpen) {
         this.statusPanelOpen = false;
         document.getElementById('status-overlay')?.classList.remove('show');
@@ -2033,6 +2036,16 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * 摘掉祝福面板的数字键监听。所有把 upgradeSelectionActive 置回 false 的路径
+   * 都要调它，否则面板关了、监听还留着（虽然有守卫不误触发，但会一直累积）。
+   */
+  private removeBoonKeyHandler(): void {
+    if (!this.boonKeyHandler) return;
+    window.removeEventListener('keydown', this.boonKeyHandler);
+    this.boonKeyHandler = null;
+  }
+
   /** Hades 式祝福选择：战斗/ Boss 房清空后弹出 3 选 1（水平横条布局） */
   private showUpgradeSelection(): void {
     this.upgradeSelectionActive = true;
@@ -2099,6 +2112,18 @@ export class GameScene extends Phaser.Scene {
     overlay.classList.add('show');
     overlay.classList.remove('fade-out');
 
+    // 数字键 1/2/3 直选、Esc 跳过（PC 端高频操作，此前只能点卡片）
+    this.removeBoonKeyHandler();
+    this.boonKeyHandler = (ev: KeyboardEvent) => {
+      if (!this.upgradeSelectionActive) return;
+      if (ev.key === 'Escape') { this.closeBoonOverlay(); return; }
+      const index = Number(ev.key) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= this.upgradeChoices.length) return;
+      ev.preventDefault();
+      this.selectUpgrade(index);
+    };
+    window.addEventListener('keydown', this.boonKeyHandler);
+
     const skipBtn = document.getElementById('upgrade-skip');
     if (skipBtn) {
       skipBtn.onclick = () => this.closeBoonOverlay();
@@ -2109,6 +2134,7 @@ export class GameScene extends Phaser.Scene {
   private closeBoonOverlay(): void {
     if (!this.upgradeSelectionActive) return;
     this.upgradeSelectionActive = false;
+    this.removeBoonKeyHandler();
 
     const overlay = document.getElementById('upgrade-overlay');
     const getEl = document.getElementById('upgrade-get');
@@ -2143,6 +2169,7 @@ export class GameScene extends Phaser.Scene {
   private selectUpgrade(index: number): void {
     if (!this.upgradeSelectionActive || index >= this.upgradeChoices.length) return;
     this.upgradeSelectionActive = false;
+    this.removeBoonKeyHandler();
     const boon = this.upgradeChoices[index];
     const school = SCHOOL_COLORS[boon.school];
     this.playSfx('sfx-ga', 0.8); // 语义同 Chemic ga=合成成功
@@ -5518,6 +5545,7 @@ export class GameScene extends Phaser.Scene {
     if (this.playerDying) return;
     this.playerDying = true;
     this.upgradeSelectionActive = false;
+    this.removeBoonKeyHandler();
     this.playSfx('sfx-behit', 1);
     // 关闭祝福选择面板（防止死亡时残留）
     const overlay = document.getElementById('upgrade-overlay');
