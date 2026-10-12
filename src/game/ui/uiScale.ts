@@ -37,6 +37,13 @@ export const BASE_FONT_DESIGN = 14;
 export const MAX_MOBILE_UI_SCALE = 1.6;
 /** 控件与屏幕边缘的最小留白（CSS px）。 */
 export const CONTROL_EDGE_PAD_CSS = 8;
+/**
+ * 单个 HUD 元素占用的屏宽上限（设计单位占比）。
+ * UI 放大（computeUiScale 在移动端最高 1.6 倍）若同时作用于**几何尺寸**，
+ * 血条/面板这类长条元素会被推到出屏——字号变大是为可读性，
+ * 但元素的占位宽度必须按屏幕宽度封顶，否则可读性补偿反过来吃掉视野。
+ */
+export const MAX_HUD_WIDTH_RATIO = 0.34;
 /** 摇杆指示球行程占底盘半径的比例：留出余量，保证指示球始终落在底盘内。 */
 export const JOYSTICK_TRAVEL_RATIO = 0.72;
 /** 摇杆死区占行程的比例：低于该位移不产生移动输入，避免手指微抖导致漂移。 */
@@ -314,6 +321,23 @@ export function computeTouchControlLayout(
  */
 export function hudRightEdge(baseRight: number, clusterLeft: number, gap: number, avoid: boolean): number {
   return avoid ? Math.min(baseRight, clusterLeft - gap) : baseRight;
+}
+
+/**
+ * HUD 元素的宽度上限（设计单位）：按屏幕宽度的固定比例封顶。
+ *
+ * 存在的原因是「可读性补偿」与「几何尺寸」被同一把尺子放大了：
+ * computeUiScale 在移动端最高放大 1.6 倍，本意是让 14px 的字在 PPI 高的
+ * 小屏上仍可读；但同一个 s 也乘在血条宽度(260)、核心半径(26)这些**几何量**上，
+ * 结果是窄屏上血条直接顶出屏幕。字该变大，但元素占位必须按屏宽封顶。
+ *
+ * @param design 设计稿尺寸（设计单位）
+ * @param screenWidth 当前屏幕宽（设计单位）
+ * @param ratio 允许占用的屏宽比例，缺省 MAX_HUD_WIDTH_RATIO
+ */
+export function hudMaxWidth(design: number, screenWidth: number, ratio: number = MAX_HUD_WIDTH_RATIO): number {
+  if (!(screenWidth > 0)) return design;
+  return Math.min(design, screenWidth * ratio);
 }
 
 function clamp(v: number, min: number, max: number): number {

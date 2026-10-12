@@ -19,6 +19,7 @@ import {
   computeTouchControlLayout,
   computeUiScale,
   currentViewportMetrics,
+  hudMaxWidth,
   hudRightEdge,
   isTouchDevice,
   readSafeAreaInsets,
@@ -167,9 +168,12 @@ export class UIScene extends Phaser.Scene {
     this.indicatorGfx = this.add.graphics().setDepth(3);
 
     // ---- 左下：EHP 血条 + 价电子 + 自由电子 ----
-    this.ehpBarW = (this.isMobile ? 260 : 340) * s;
+    // 宽度按屏宽封顶：移动端 s 最高 1.6 倍，若把 260 直接乘上去，
+    // 窄屏上血条会连同右侧的数值一起顶出屏幕。字变大是为可读性，
+    // 但元素占位必须按屏宽封顶（见 hudMaxWidth 注释）。
+    this.ehpBarW = hudMaxWidth((this.isMobile ? 260 : 340) * s, W, this.isMobile ? 0.36 : 0.26);
     const barX = 40 * s;
-    const coreR = (this.isMobile ? 26 : 32) * s;
+    const coreR = Math.min((this.isMobile ? 26 : 32) * s, W * 0.028);
     // 触屏端摇杆占左下角：状态栏顶部（核心中心上方 48+22）须落在摇杆底沿下方 8px。
     // 上限钳制保证血条底缘不出屏——极端矮屏宁可贴近摇杆也不能被裁剪。
     const barY = this.isMobile && this.controlLayout
@@ -251,7 +255,9 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(12);
 
     // ---- 顶部：Boss 血条 ----
-    const bossBarW = Math.min(620 * s, W - 320 * s);
+    // 两侧各留 160*s 的对称余量；窄屏上 W-320*s 会退化成负数或极小值，
+    // 故再按屏宽比例封一个下限，保证血条在窄屏上仍然可读。
+    const bossBarW = Math.max(Math.min(620 * s, W - 320 * s), W * 0.42);
     this.bossNameText = this.add.text(W / 2, 56 * s, '', {
       color: '#E0AAFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * s)}px`, fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(12).setVisible(false);

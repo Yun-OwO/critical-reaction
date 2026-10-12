@@ -2185,8 +2185,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showRoomBanner(text: string, color: string): void {
+    // 长文案横幅在窄屏上会被放大到超出视野，故按屏宽反推字号上限：
+    // 等比单调字体的字宽约 0.6em，留 0.9 的屏宽余量即 (W*0.9)/(len*0.6)。
+    const fit = (this.scale.width * 0.9) / Math.max(1, text.length * 0.6);
     const flash = this.add.text(this.diamondCx, this.diamondCy - 160, text, {
-      color, fontFamily: 'monospace', fontSize: `${Math.round(30 * this.uiScale)}px`
+      color, fontFamily: 'monospace', fontSize: `${Math.round(Math.min(30 * this.uiScale, fit))}px`
     }).setOrigin(0.5).setDepth(9999).setAlpha(0);
     this.tweens.add({
       targets: flash, alpha: { from: 0, to: 1 }, y: flash.y - 30, duration: 500, ease: 'Cubic.out',
@@ -3147,7 +3150,8 @@ export class GameScene extends Phaser.Scene {
     title.textContent = def.title;
     flavor.textContent = def.flavor;
     result.textContent = '';
-    foot.textContent = '数字键 1-9 选择 · Esc 关闭';
+    // 移动端没有键盘，提示语不能再以按键为主； Esc/数字键只是桌面端的快捷方式
+    foot.textContent = '点击选项 · 按 Esc 或「离开」关闭';
     list.innerHTML = '';
 
     const ctx = this.eventContext();
@@ -3186,6 +3190,9 @@ export class GameScene extends Phaser.Scene {
       this.chooseEventOption(opt);
     };
     window.addEventListener('keydown', this.eventKeyHandler);
+    // 移动端出口：面板无 Esc 键可依，必须有一个可点的关闭按钮
+    const closeBtn = document.getElementById('event-close');
+    if (closeBtn) closeBtn.onclick = () => this.closeEventOverlay();
   }
 
   /** 结算一个选项：把 resolve 的纯增量落到 gameState 上。 */
@@ -3272,6 +3279,8 @@ export class GameScene extends Phaser.Scene {
       window.removeEventListener('keydown', this.eventKeyHandler);
       this.eventKeyHandler = null;
     }
+    const closeBtn = document.getElementById('event-close');
+    if (closeBtn) closeBtn.onclick = null;
     const overlay = document.getElementById('event-overlay');
     if (overlay) {
       overlay.classList.add('fade-out');
