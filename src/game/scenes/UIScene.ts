@@ -186,6 +186,10 @@ export class UIScene extends Phaser.Scene {
           Math.max(H - 66 * s, this.controlLayout.joyY + this.controlLayout.baseR + coreR + 78 * s)
         )
       : H - 66 * s;
+    // 血条底缘下方还有一整行 dashText（约 32px + 间距），所以钳制上界必须再退一档，
+    // 否则 barY 被 joyY 顶高后 dashText 直接出屏（20:9 实测 -5px）。
+    const barBottomLimit = H - 8 * s - 32 - 14 * s;
+    const barTopLimit = Math.min(barY, barBottomLimit);
     this.add.rectangle(barX - 3 * s, barY - 3 * s, this.ehpBarW + 6 * s, 26 * s, BASE_COLORS.panel, 0.72)
       .setStrokeStyle(1.5, BASE_COLORS.panelEdge, 0.9).setDepth(9).setOrigin(0, 0);
     this.add.rectangle(barX, barY, this.ehpBarW, 20 * s, 0x0b1e2d, 0.9)
@@ -218,7 +222,10 @@ export class UIScene extends Phaser.Scene {
       color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(13 * fs)}px`
     }).setOrigin(0, 0.5).setDepth(12);
 
-    this.dashText = this.add.text(barX, barY + 34 * s, '', {
+    // dashText 跟着血条底缘走：直接写 barY + 34*s 在 20:9（H=864）上会
+    // 距底仅 27px，触屏端再被摇杆/按钮区吃掉就直接出屏。
+    // 改成贴着血条底缘下方固定位移，与 barY 的钳制联动。
+    this.dashText = this.add.text(barX, Math.min(barTopLimit + 34 * s, H - 8 * s - 30), '', {
       color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(13 * fs)}px`
     }).setDepth(12);
 
