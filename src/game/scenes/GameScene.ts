@@ -1551,32 +1551,44 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawGrid(): void {
-    // 网格光栅化到 96×48 周期贴图 + TileSprite（单四边形渲染）。
-    // 此前用 Graphics 每帧重描约 2600 个菱形，是移动端最大的 CPU 渲染瓶颈。
+    // 地面格栅（P1 风格纵切）：从「细线菱形网格」改为「工业格栅板」——
+    // 横向承载条 + 暗孔，参考用户提供的深色细密横栅材质图。
+    // 仍光栅化到周期贴图 + TileSprite（单四边形渲染）：此前用 Graphics
+    // 每帧重描约 2600 个菱形，是移动端最大的 CPU 渲染瓶颈，这个优化保留。
     const texKey = 'grid-tile';
     if (this.textures.exists(texKey)) this.textures.remove(texKey);
-    const halfTileW = 48;
-    const halfTileH = 24;
-    const canvasTex = this.textures.createCanvas(texKey, halfTileW * 2, halfTileH * 2);
+    const tileW = 96;
+    const tileH = 48;
+    const canvasTex = this.textures.createCanvas(texKey, tileW, tileH);
     const ctx = canvasTex?.getContext();
     if (ctx && canvasTex) {
-      ctx.strokeStyle = 'rgba(42, 96, 128, 0.8)';
-      ctx.lineWidth = 1;
-      const diamond = (cx0: number, cy0: number): void => {
-        ctx.beginPath();
-        ctx.moveTo(cx0, cy0 - halfTileH);
-        ctx.lineTo(cx0 + halfTileW, cy0);
-        ctx.lineTo(cx0, cy0 + halfTileH);
-        ctx.lineTo(cx0 - halfTileW, cy0);
-        ctx.closePath();
-        ctx.stroke();
-      };
-      // 中心完整菱形 + 四角被裁切的菱形，平铺后还原完整网格晶格
-      diamond(halfTileW, halfTileH);
-      diamond(0, 0);
-      diamond(halfTileW * 2, 0);
-      diamond(0, halfTileH * 2);
-      diamond(halfTileW * 2, halfTileH * 2);
+      // 底层暗底（格栅板的本体色），上下边缘留 1px 接缝带让平铺不断裂
+      ctx.fillStyle = 'rgba(18, 26, 32, 0.34)';
+      ctx.fillRect(0, 0, tileW, tileH);
+      // 横向承载条：三条主条 + 两条细筋，形成"工业踏板"的节奏。
+      // 条与条之间是暗孔——这才是格栅的透视线索来源。
+      const bars: Array<[number, number, string]> = [
+        // [y, 高度, 亮度]
+        [4, 5, 'rgba(96, 118, 132, 0.5)'],
+        [16, 3, 'rgba(78, 96, 108, 0.34)'],
+        [27, 5, 'rgba(96, 118, 132, 0.5)'],
+        [39, 3, 'rgba(78, 96, 108, 0.34)']
+      ];
+      for (const [y, h, color] of bars) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, y, tileW, h);
+      }
+      // 条面高光：只在主条上沿画 1px 亮线，暗示金属受光（不铺满，避免发灰）
+      ctx.fillStyle = 'rgba(150, 176, 192, 0.28)';
+      ctx.fillRect(0, 4, tileW, 1);
+      ctx.fillRect(0, 27, tileW, 1);
+      // 暗孔内的细纵筋：每 12px 一根，给暗孔一点结构而非纯黑
+      ctx.fillStyle = 'rgba(58, 74, 86, 0.2)';
+      for (let x = 6; x < tileW; x += 12) ctx.fillRect(x, 11, 1, 26);
+      // 左右边缘 1px 竖向接缝，保证横向平铺时条带连续
+      ctx.fillStyle = 'rgba(70, 88, 100, 0.3)';
+      ctx.fillRect(0, 0, 1, tileH);
+      ctx.fillRect(tileW - 1, 0, 1, tileH);
       canvasTex!.refresh();
     }
     const gridTile = this.add.tileSprite(this.diamondCx, this.diamondCy, this.worldWidth, this.worldHeight, texKey)
@@ -7613,7 +7625,11 @@ export class GameScene extends Phaser.Scene {
       // 玩家扫一眼地图，亮边围出来的就是墙，其余全是格栅地。
       gx.lineStyle(collidable ? 2.2 : 1.2, rim, collidable ? 0.85 : 0.5);
       gx.strokePath();
-      if (lift === 0) return; // 浅台到此为止，无侧面
+      // 侧壁（= "这里过不去" 的实体暗示）只对真正有碰撞的块画。
+      // 计划 §7.2：块可以在 height>=20 时仍 collidable=false（走廊/间距规则），
+      // 那种块若也画侧壁，玩家会看到一面穿不过去的墙、却能直接走过去——视觉欺骗。
+      // 因此判定用 collidable 而不是 height。
+      if (!collidable) return;
       const sideL = Phaser.Display.Color.IntegerToColor(top).darken(28).color;
       const sideR = Phaser.Display.Color.IntegerToColor(top).darken(45).color;
       // 侧面：从顶面（上移 height）的两条前棱，垂直落到地面菱形——上下严丝合缝。
