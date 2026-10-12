@@ -2,9 +2,13 @@ import Phaser from 'phaser';
 import { getVisualQuality, setVisualQuality, visualEffectsSummary, visualQualityLabel } from '../game/visual/quality';
 import { applyAdaptiveResolution, getSettings, toggleSetting, type AspectRatio } from '../game/state/SettingsState';
 import { dyes, resolveMix, getMixPreview } from '../game/data/dyes';
-import { relicDefs, getRelicEffect, getRarityColor, getRarityLabel, isRelicUnlocked, type UnlockKind, type RelicProgress } from '../game/data/relics';
+import {
+  relicDefs, getRelicEffect, getRarityColor, getRarityLabel, isRelicUnlocked,
+  RELIC_SLOTS, activeRelicSets, relicSlotUsage,
+  type UnlockKind, type RelicProgress
+} from '../game/data/relics';
 import { gameState } from '../game/state/GameState';
-import { profileState, setActiveRelic, equipDyePair, upgradeRelic, getRelicLevel, relicUpgradeCost, getWeaponLevel, getWeaponForm, upgradeWeapon, setWeaponForm, buyGear, getWarehouseCount, toggleGearSlot, unequipGearSlot } from '../game/state/ProfileState';
+import { profileState, toggleRelic, equipDyePair, upgradeRelic, getRelicLevel, relicUpgradeCost, getWeaponLevel, getWeaponForm, upgradeWeapon, setWeaponForm, buyGear, getWarehouseCount, toggleGearSlot, unequipGearSlot } from '../game/state/ProfileState';
 import { MAX_WEAPON_LEVEL, weaponUpgradeCost, weapons } from '../game/data/weapons';
 import { GEAR_RARITY_META, GEAR_SLOTS, GEAR_SLOT_META, gearsForSlot, getGear, warehouseCount, type GearSlot } from '../game/data/gear';
 
@@ -363,27 +367,38 @@ function relicGridSlot(index: number): { gx: number; gz: number } {
 function renderRelicPanel(): void {
   const content = element<HTMLElement>('relic-list-content');
   if (!content) return;
-  const active = profileState.activeRelicId;
-  let activeName = '';
-  if (active) {
-    const def = relicDefs.find((r) => r.id === active);
-    activeName = def ? def.name : '';
-  }
+  const activeIds = profileState.activeRelicIds;
   const progress = profileState.progress;
+  const usage = relicSlotUsage(activeIds);
 
   let html = '';
-  // 状态条：当前激活
+  // 状态条：按稀有度显示槽位占用（多槽激活后「激活了谁」一句话说不清，
+  // 但「每一档还剩几个槽」是玩家真正需要的信息）
   html += `<div class="relic-activebar">`;
-  html += activeName ? `<span class="relic-active-pill on">激活：${activeName}</span>` : `<span class="relic-active-pill">未激活 · 点击任意解锁遗物激活</span>`;
+  for (const r of ['common', 'rare', 'legendary'] as const) {
+    const full = usage[r] >= RELIC_SLOTS[r];
+    html += `<span class="relic-active-pill${usage[r] > 0 ? ' on' : ''}">${getRarityLabel(r)} ${usage[r]}/${RELIC_SLOTS[r]}</span>`;
+    void full;
+  }
   html += `<span class="relic-active-tip">样本 ${profileState.samples} · 可用样本升级遗物</span>`;
   html += '</div>';
+
+  // 触发中的套装：必须让玩家看见「我凑齐了什么」，否则联动等于白做
+  const sets = activeRelicSets(activeIds);
+  if (sets.length > 0) {
+    html += '<div class="relic-activebar relic-sets">';
+    for (const set of sets) {
+      html += `<span class="relic-active-pill on">⚛ ${set.name} · ${set.effect.description}</span>`;
+    }
+    html += '</div>';
+  }
 
   // 2.5D 网格地面
   html += '<div class="relic-grid">';
   relicDefs.forEach((def, i) => {
     const slot = relicGridSlot(i);
     const unlocked = isRelicUnlocked(def, progress);
-    const isActive = def.id === active;
+    const isActive = activeIds.includes(def.id);
     const rarityHex = relicHex(getRarityColor(def.rarity));
     const rarityLabel = getRarityLabel(def.rarity);
     const level = getRelicLevel(def.id);
@@ -434,8 +449,8 @@ function renderRelicPanel(): void {
       const def = relicDefs.find((r) => r.id === id);
       if (!def || !isRelicUnlocked(def, profileState.progress)) return;
       selectedRelicId = id; // 记录当前选中项触发选中动画与效果提示
-      const target = profileState.activeRelicId === id ? null : id;
-      void setActiveRelic(target).then(() => {
+      void toggleRelic(id).then((ok) => {
+        if (!ok) uiSfx('sfx-duong', 0.5); // 槽位已满 / 未解锁
         renderRelicPanel(); // 保持选中态，让激活动画（relic-select + relic-float）可见
       });
     });

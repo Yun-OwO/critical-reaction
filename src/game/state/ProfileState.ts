@@ -15,7 +15,15 @@ import {
   type GearWarehouse,
   type ResolvedGearEffects
 } from '../data/gear';
-import { relicDefs, isRelicUnlocked, EMPTY_RELIC_PROGRESS, type RelicProgress } from '../data/relics';
+import {
+  clampActiveRelics,
+  hasRelicSlot,
+  relicDefs,
+  isRelicUnlocked,
+  EMPTY_RELIC_PROGRESS,
+  type RelicDef,
+  type RelicProgress
+} from '../data/relics';
 import { MAX_WEAPON_LEVEL, weaponUpgradeCost, weapons } from '../data/weapons';
 import { storageGet, storageSet } from './storage';
 
@@ -30,8 +38,13 @@ export interface ProfileState {
   progress: RelicProgress;
   /** 已解锁的遗物 id 列表 */
   unlockedRelics: string[];
-  /** 当前激活的遗物 id（只能一个；为空表示未激活） */
-  activeRelicId: string | null;
+  /** 当前激活的遗物 id 列表（多槽，按稀有度上限裁剪）。 */
+  activeRelicIds: string[];
+  /**
+   * @deprecated 旧存档字段：单遗物时代遗留。读取时会被迁移进 activeRelicIds，
+   * 之后不再写入。保留是为了让旧存档不至于读不出来。
+   */
+  activeRelicId?: string | null;
   /** 遗物升级等级（id → level 0-2，用样本在展示柜升级） */
   relicLevels: Record<string, number>;
   /** 武器等级（§7.3：1 起始，满级 3 解锁形态） */
@@ -55,7 +68,7 @@ export const profileState: ProfileState = {
   equippedDyeSubId: null,
   progress: { ...EMPTY_RELIC_PROGRESS },
   unlockedRelics: [],
-  activeRelicId: null,
+  activeRelicIds: [],
   relicLevels: {},
   weaponLevels: Object.fromEntries(weapons.map((w) => [w.id, 1])),
   weaponForms: Object.fromEntries(weapons.map((w) => [w.id, null])),
@@ -91,8 +104,13 @@ export async function loadProfileFromStorage(): Promise<boolean> {
     if (Array.isArray(stored.unlockedRelics)) {
       profileState.unlockedRelics = stored.unlockedRelics.filter((id) => relicDefs.some((r) => r.id === id));
     }
-    if (typeof stored.activeRelicId === 'string' && relicDefs.some((r) => r.id === stored.activeRelicId)) {
-      profileState.activeRelicId = stored.activeRelicId;
+    // 多槽激活：先读新字段；旧存档只有 activeRelicId，迁移进来后再裁一次槽位
+    if (Array.isArray(stored.activeRelicIds)) {
+      profileState.activeRelicIds = clampActiveRelics(
+        stored.activeRelicIds.filter((id) => typeof id === 'string')
+      );
+    } else if (typeof stored.activeRelicId === 'string' && relicDefs.some((r) => r.id === stored.activeRelicId)) {
+      profileState.activeRelicIds = clampActiveRelics([stored.activeRelicId]);
     }
     if (stored.relicLevels && typeof stored.relicLevels === 'object') {
       const levels: Record<string, number> = {};
@@ -137,7 +155,7 @@ export async function saveProfile(): Promise<void> {
       equippedDyeSubId: profileState.equippedDyeSubId,
       progress: profileState.progress,
       unlockedRelics: profileState.unlockedRelics,
-      activeRelicId: profileState.activeRelicId,
+      activeRelicIds: profileState.activeRelicIds,
       relicLevels: profileState.relicLevels,
       weaponLevels: profileState.weaponLevels,
       weaponForms: profileState.weaponForms,
@@ -245,18 +263,42 @@ export function applyProgress(partial: Partial<RelicProgress>): string[] {
   return newlyUnlocked;
 }
 
-/** 激活指定遗物（会替换当前激活的遗物）；传 null 表示放下。 */
-export async function setActiveRelic(id: string | null): Promise<void> {
-  if (id !== null && !profileState.unlockedRelics.includes(id)) return;
-  if (id !== null && !relicDefs.some((r) => r.id === id)) return;
-  profileState.activeRelicId = id;
+/**
+ * 切换某个遗物的激活状态。
+ * 与旧版的差别是**不再替换**：槽位按稀有度分别计数，
+ * 只有该稀有度的槽满了才放不进去（返回 false，调用方据此提示）。
+ */
+export async function toggleRelic(id: string): Promise<boolean> {
+  if (!profileState.unlockedRelics.includes(id)) return false;
+  const def = relicDefs.find((r) => r.id === id);
+  if (!def) return false;
+  const idx = profileState.activeRelicIds.indexOf(id);
+  if (idx >= 0) {
+    profileState.activeRelicIds.splice(idx, 1);
+  } else {
+    if (!hasRelicSlot(profileState.activeRelicIds, def.rarity)) return false;
+    profileState.activeRelicIds.push(id);
+  }
+  await saveProfile();
+  return true;
+}
+
+/** 激活指定遗物列表（供测试与旧存档迁移用；会按槽位裁剪）。 */
+export async function setActiveRelics(ids: readonly string[]): Promise<void> {
+  profileState.activeRelicIds = clampActiveRelics(ids);
   await saveProfile();
 }
 
-/** 当前激活的遗物定义。 */
+/** 当前激活的遗物定义列表。 */
+export function getActiveRelicDefs() {
+  return profileState.activeRelicIds
+    .map((id) => relicDefs.find((r) => r.id === id))
+    .filter((d): d is RelicDef => !!d);
+}
+
+/** 兼容旧调用点：返回第一个激活的遗物（多槽后语义已变，仅用于过渡）。 */
 export function getActiveRelicDef() {
-  if (!profileState.activeRelicId) return undefined;
-  return relicDefs.find((r) => r.id === profileState.activeRelicId);
+  return getActiveRelicDefs()[0];
 }
 
 /* ── 装备（搜打撤核心循环）────────────────────────────── */

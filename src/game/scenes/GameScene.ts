@@ -44,7 +44,11 @@ import { SCHOOL_COLORS, RARITY_COLORS, RARITY_LABELS, SCHOOL_NAMES, SCHOOL_SYMBO
 import { gameState } from '../state/GameState';
 import type { ReactionMode } from '../state/GameState';
 import { damagePlayerState, gainFreeElectrons, resetRun } from '../state/GameState';
-import { profileState, saveProfile, applyProgress, getActiveRelicDef, getRelicLevel, getLoadoutEffects, loseGearOnDeath, bankCarriedGear } from '../state/ProfileState';
+import {
+  profileState, saveProfile, applyProgress,
+  getActiveRelicDefs, getRelicLevel, getLoadoutEffects, loseGearOnDeath, bankCarriedGear
+} from '../state/ProfileState';
+import { activeRelicSets } from '../data/relics';
 import { dyes, getDye, resolveMix, DYE_SLOT_MULTIPLIERS } from '../data/dyes';
 import type { DyeEffectType } from '../data/dyes';
 import { relicDefs } from '../data/relics';
@@ -482,6 +486,10 @@ export class GameScene extends Phaser.Scene {
   private relicThornsChance = 0;
   private relicThornsDamage = 0;
   private relicMaxValence = 0;
+  /** 遗物「活化电极」：自由电子上限加成 */
+  private relicMaxElectron = 0;
+  /** 遗物「隔膜电解槽」：背包容量加成（负载更轻） */
+  private relicBagCapacity = 0;
   /* ── 装备（搜打撤核心循环）：出击时由携带槽汇总，死亡丢失 ── */
   private gearDamageMult = 1;
   private gearSampleMult = 1;
@@ -2502,6 +2510,8 @@ export class GameScene extends Phaser.Scene {
     this.relicThornsChance = 0;
     this.relicThornsDamage = 0;
     this.relicMaxValence = 0;
+    this.relicMaxElectron = 0;
+    this.relicBagCapacity = 0;
   }
 
   /** 护盾上限：基础 100 + 遗物/装备加成，再乘 §2.1 还原态的自由电子加成。 */
@@ -2622,9 +2632,14 @@ export class GameScene extends Phaser.Scene {
 
   /** 根据激活的遗物（单个），累积效果到状态字段。 */
   private applyRelicEffects(): void {
-    const active = getActiveRelicDef();
-    if (active) {
-      this.applySingleRelicEffect(active.id, getRelicLevel(active.id));
+    // 多槽激活（本次改造）：逐个应用所有激活遗物，而不是只取第一个
+    const activeDefs = getActiveRelicDefs();
+    for (const def of activeDefs) {
+      this.applySingleRelicEffect(def.id, getRelicLevel(def.id));
+    }
+    // 套装联动：凑齐组合后的额外效果，同样走 applySingleRelicEffect 的分发
+    for (const set of activeRelicSets(profileState.activeRelicIds)) {
+      this.applySetEffect(set.effect);
     }
     // 应用护盾上限
     if (this.relicMaxShield > 0) {
@@ -2633,6 +2648,31 @@ export class GameScene extends Phaser.Scene {
     // 应用价电子上限（+n，叠在基础 1 上；撤离充能/水池/商人按此上限恢复）
     if (this.relicMaxValence > 0) {
       gameState.maxValence += this.relicMaxValence;
+    }
+    if (this.relicMaxElectron > 0) {
+      gameState.maxFreeElectrons += this.relicMaxElectron;
+    }
+    if (this.relicBagCapacity > 0) {
+      gameState.bagCapacity += this.relicBagCapacity;
+    }
+  }
+
+  /**
+   * 套装联动效果的分发。
+   * 与单遗物分开是为了让「联动」在代码里也是一等公民——
+   * 它不该混在遗物种类的 switch 里，否则加套装就要改遗物的分发表。
+   */
+  private applySetEffect(effect: { type: string; value: number }): void {
+    switch (effect.type) {
+      // 原电池：双态都加成，不再被迫在氧化/还原之间站队
+      case 'dual_state_bonus': this.relicOxidizeBonus += effect.value; this.relicReduceBonus += effect.value; break;
+      // 催化循环：冷却与攻速同时再进一步，形成高频循环
+      case 'cycle_bonus': this.relicCdReduction += effect.value; this.relicAtkSpeedBonus += effect.value; break;
+      // 惰性护壁：反弹必定触发且伤害提高，把承伤转成输出
+      // 惰性护壁：反弹必定触发，反弹倍率 +50%（叠加在遗物自身的倍率上）
+      case 'wall_bonus': this.relicThornsChance = 100; this.relicThornsDamage += effect.value / 100; break;
+      // 临界反应堆：资源扩容换爆发
+      case 'reactor_bonus': this.relicCritChance += effect.value; break;
     }
   }
 
@@ -2655,6 +2695,10 @@ export class GameScene extends Phaser.Scene {
         this.relicThornsDamage = effect.value / 60;
         break;
       case 'max_valence': this.relicMaxValence += effect.value; break;
+      // 活化电极：自由电子上限
+      case 'max_electron': this.relicMaxElectron += effect.value; break;
+      // 隔膜电解槽：背包容量（负载更轻）
+      case 'bag_capacity': this.relicBagCapacity += effect.value; break;
     }
   }
 
