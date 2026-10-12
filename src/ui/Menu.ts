@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { AudioDirector } from '../game/audio/AudioDirector';
 import { getVisualQuality, setVisualQuality, visualEffectsSummary, visualQualityLabel } from '../game/visual/quality';
 import { applyAdaptiveResolution, getSettings, toggleSetting, type AspectRatio } from '../game/state/SettingsState';
 import { dyes, resolveMix, getMixPreview } from '../game/data/dyes';
@@ -283,7 +284,7 @@ function renderDyeWorkbench(): void {
       if (index === currentIndex()) return;
       if (kind === 'primary') dyePrimaryIdx = index; else dyeSecondaryIdx = index;
       items.forEach((it, i) => it.classList.toggle('sel', i === index));
-      uiSfx('sfx-ziya', 0.4);
+      uiSfx('toggle', 0.4);
       applyDyeState(); // 实时应用
       updateWheelResult();
     };
@@ -450,7 +451,7 @@ function renderRelicPanel(): void {
       if (!def || !isRelicUnlocked(def, profileState.progress)) return;
       selectedRelicId = id; // 记录当前选中项触发选中动画与效果提示
       void toggleRelic(id).then((ok) => {
-        if (!ok) uiSfx('sfx-duong', 0.5); // 槽位已满 / 未解锁
+        if (!ok) uiSfx('deny', 0.5); // 槽位已满 / 未解锁
         renderRelicPanel(); // 保持选中态，让激活动画（relic-select + relic-float）可见
       });
     });
@@ -460,9 +461,9 @@ function renderRelicPanel(): void {
       ev.stopPropagation(); // 不触发磁贴的激活/放下
       const id = btn.dataset.relicUpgrade ?? '';
       if (upgradeRelic(id)) {
-        uiSfx('sfx-liang', 0.8); // 升级成功
+        uiSfx('upgrade', 0.8); // 升级成功
       } else {
-        uiSfx('sfx-duong', 0.5); // 样本不足
+        uiSfx('deny', 0.5); // 样本不足
       }
       renderRelicPanel();
     });
@@ -510,7 +511,7 @@ function renderWeaponPanel(): void {
       if (level < MAX_WEAPON_LEVEL) btn.classList.add('disabled');
       btn.addEventListener('click', () => {
         setWeaponForm(weapon.id, activeForm === form.id ? null : form.id);
-        uiSfx('sfx-ka', 0.7);
+        uiSfx('panel-open', 0.7);
         renderWeaponPanel();
       });
       formList.appendChild(btn);
@@ -531,9 +532,9 @@ function renderWeaponPanel(): void {
     btn.addEventListener('click', () => {
       const id = btn.dataset.weaponUpgrade ?? '';
       if (upgradeWeapon(id)) {
-        uiSfx('sfx-liang', 0.8);
+        uiSfx('upgrade', 0.8);
       } else {
-        uiSfx('sfx-duong', 0.5);
+        uiSfx('deny', 0.5);
       }
       renderWeaponPanel();
     });
@@ -595,8 +596,8 @@ function renderGearPanel(): void {
 
   content.querySelectorAll<HTMLButtonElement>('[data-gear-buy]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (buyGear(btn.dataset.gearBuy ?? '')) uiSfx('sfx-liang', 0.8);
-      else uiSfx('sfx-duong', 0.5);
+      if (buyGear(btn.dataset.gearBuy ?? '')) uiSfx('confirm', 0.8);
+      else uiSfx('deny', 0.5);
       renderGearPanel();
     });
   });
@@ -604,14 +605,14 @@ function renderGearPanel(): void {
     btn.addEventListener('click', () => {
       const [slot, id] = (btn.dataset.gearEquip ?? '').split('|');
       toggleGearSlot(slot as GearSlot, id);
-      uiSfx('sfx-ka', 0.7);
+      uiSfx('panel-open', 0.7);
       renderGearPanel();
     });
   });
   content.querySelectorAll<HTMLButtonElement>('[data-gear-unequip]').forEach((btn) => {
     btn.addEventListener('click', () => {
       unequipGearSlot(btn.dataset.gearUnequip as GearSlot);
-      uiSfx('sfx-ka', 0.7);
+      uiSfx('panel-open', 0.7);
       renderGearPanel();
     });
   });
@@ -630,15 +631,28 @@ function progressFor(def: { unlock: { kind: UnlockKind; target: number } }, p: R
   return (cur / Math.max(1, def.unlock.target)) * 100;
 }
 
-/** UI 音效（Chemic 语义：ka=面板开合, ziya=选择, da=应用, liang=升级成功, duong=失败）。 */
+/**
+ * UI 音效 —— 与战斗音共用同一个 AudioDirector。
+ *
+ * 旧实现是裸 `uiGame.sound.play(key)`：既不走语义目录（所以还在用 sfx-ka 这类
+ * 旧 key），也不受声部预算与设置影响。现在挂到 director 上，
+ * 语义 key 与旧拼音 key 都能解析（迁移期内由 LEGACY_SFX_ALIASES 兼容）。
+ */
 let uiGame: Phaser.Game | null = null;
+let uiAudio: AudioDirector | null = null;
 function uiSfx(key: string, volume = 0.7): void {
-  if (!uiGame) return;
-  try { uiGame.sound.play(key, { volume }); } catch { /* noop */ }
+  if (!uiAudio) return;
+  uiAudio.play({ event: key, volume, local: true });
 }
 
 export function mountMenuUi(game: Phaser.Game): void {
   uiGame = game;
+  // 音频宿主用当前活跃场景（大厅），随 mountMenuUi 生命周期存在
+  const host = game.scene.getScenes(true)[0];
+  if (host) {
+    uiAudio = new AudioDirector({ scene: host, maxVoices: 8 });
+    uiAudio.unlock();
+  }
   const mobile = isMobile();
   updateHints();
   // ---- 全屏切换后重算自适应比例 ----
@@ -684,7 +698,7 @@ export function mountMenuUi(game: Phaser.Game): void {
   window.screen?.orientation?.addEventListener?.('change', onOrientationChange);
   // 隐藏触发按钮：LobbyScene 交互点会调用 .click() 打开对应面板
   element<HTMLButtonElement>('open-settings')?.addEventListener('click', () => {
-    uiSfx('sfx-ka'); // 面板打开
+    uiSfx('panel-open'); // 面板打开
     showPanel('settings-panel');
     renderSettings();
   });
@@ -700,51 +714,55 @@ export function mountMenuUi(game: Phaser.Game): void {
   });
   document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((button) => {
     button.addEventListener('click', () => {
-      uiSfx('sfx-hit', 0.5); // 标签切换（源：di=切换）
+      uiSfx('alert', 0.5); // 标签切换（源：di=切换）
       activeTab = (button.dataset.tab ?? '画面') as Tab;
       renderSettings();
     });
   });
   // 染色工作台
   element<HTMLButtonElement>('open-dye-workbench')?.addEventListener('click', () => {
-    uiSfx('sfx-ka'); // 面板打开
+    uiSfx('panel-open'); // 面板打开
     showPanel('dye-panel');
     renderDyeWorkbench();
   });
   element<HTMLButtonElement>('dye-back')?.addEventListener('click', () => {
+    uiSfx('collapse', 0.45); // 面板收起
     const panel = element<HTMLElement>('dye-panel');
     panel?.classList.add('is-exiting');
     window.setTimeout(() => { panel?.setAttribute('hidden', ''); panel?.classList.remove('is-exiting'); updateHints(); }, 180);
   });
   // 遗物展示柜
   element<HTMLButtonElement>('open-relic-panel')?.addEventListener('click', () => {
-    uiSfx('sfx-ka'); // 面板打开
+    uiSfx('panel-open'); // 面板打开
     showPanel('relic-panel');
     renderRelicPanel();
   });
   element<HTMLButtonElement>('relic-back')?.addEventListener('click', () => {
+    uiSfx('collapse', 0.45); // 面板收起
     const panel = element<HTMLElement>('relic-panel');
     panel?.classList.add('is-exiting');
     window.setTimeout(() => { panel?.setAttribute('hidden', ''); panel?.classList.remove('is-exiting'); updateHints(); }, 180);
   });
   // 武器架
   element<HTMLButtonElement>('open-weapon-panel')?.addEventListener('click', () => {
-    uiSfx('sfx-ka'); // 面板打开
+    uiSfx('panel-open'); // 面板打开
     showPanel('weapon-panel');
     renderWeaponPanel();
   });
   element<HTMLButtonElement>('weapon-back')?.addEventListener('click', () => {
+    uiSfx('collapse', 0.45); // 面板收起
     const panel = element<HTMLElement>('weapon-panel');
     panel?.classList.add('is-exiting');
     window.setTimeout(() => { panel?.setAttribute('hidden', ''); panel?.classList.remove('is-exiting'); updateHints(); }, 180);
   });
   // 装备库（搜打撤局外经济）
   element<HTMLButtonElement>('open-gear-panel')?.addEventListener('click', () => {
-    uiSfx('sfx-ka'); // 面板打开
+    uiSfx('panel-open'); // 面板打开
     showPanel('gear-panel');
     renderGearPanel();
   });
   element<HTMLButtonElement>('gear-back')?.addEventListener('click', () => {
+    uiSfx('collapse', 0.45); // 面板收起
     const panel = element<HTMLElement>('gear-panel');
     panel?.classList.add('is-exiting');
     window.setTimeout(() => { panel?.setAttribute('hidden', ''); panel?.classList.remove('is-exiting'); updateHints(); }, 180);

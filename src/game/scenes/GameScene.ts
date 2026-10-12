@@ -74,6 +74,7 @@ import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
 import { computeFontScale, computeUiScale, currentViewportMetrics, isTouchDevice } from '../ui/uiScale';
 import { RunRng } from '../utils/RunRng';
+import { AudioDirector } from '../audio/AudioDirector';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
 import { FxPool, FX_TEX } from '../utils/Fx';
@@ -749,6 +750,9 @@ export class GameScene extends Phaser.Scene {
       // 不清的话重启 N 次后这张表就是 N 倍悬挂引用，
       // cullOffscreen 每帧遍历的全是已销毁对象（实测 28.8 万条）。
       this.cullables.length = 0;
+      // 音频声部与监听必须随场景释放，否则 restart 后旧声部继续占用预算
+      this.audio?.destroy();
+      this.audio = null;
       window.removeEventListener('keydown', this.onStatusPanelKey);
       this.removeBoonKeyHandler();
       if (this.statusPanelOpen) {
@@ -807,6 +811,11 @@ export class GameScene extends Phaser.Scene {
     // UIScene 用 maxTouchPoints，两个场景对同一台设备可能给出不同答案，
     // 导致 HUD 与触屏控件的布局假设互相矛盾（一台"半移动端"的设备）。
     this.isTouch = isTouchDevice();
+    // 音频服务：设备越弱预算越紧（计划 §5.5：移动端 8 / 桌面 12）
+    this.audio = new AudioDirector({
+      scene: this,
+      maxVoices: this.isTouch ? 8 : 12
+    });
     // 移动端屏幕小、PPI 高：等比缩放后文字会小到不可读，需按实际 CSS 像素密度补偿放大
     const gMetrics = currentViewportMetrics(this.scale.width, this.scale.height, this.isTouch);
     this.uiScale = computeUiScale(gMetrics);
@@ -1245,6 +1254,8 @@ export class GameScene extends Phaser.Scene {
       if (this.meltdownTimer <= 0) {
         this.meltdownTimer = 15;
         this.showFloatingText(this.player.x, this.player.y - 96, '熔毁！', '#FF4D6D');
+        // 熔毁是致命级反馈：用专属 meltdown 而非通用 alert，音量也高于普通命中
+        this.playSfx('meltdown', 1);
         this.damagePlayer();
         this.damagePlayer();
         this.damagePlayer();
@@ -1385,6 +1396,11 @@ export class GameScene extends Phaser.Scene {
   private claimedMilestones = 0;
   /** 音效四重节流（总并发/单源冷却/全局间隔/叠音上限） */
   private sfxLimiter = new SfxLimiter();
+  /**
+   * 音频总监（P2 音频改造的唯一入口）：语义解析 + 声部预算/抢占 + 真实播放。
+   * 在 create() 里按设备档位给预算；旧 sfxLimiter 保留给未迁移的调用点过渡。
+   */
+  private audio: AudioDirector | null = null;
   /** 共享粒子池（见 utils/Fx.ts）：命中/爆发/模式切换等一次性特效统一走这里，不再逐次建对象 */
   private fx!: FxPool;
   /** 实测帧率驱动的负载档：持续掉帧时逐级收紧粒子等开销 */
@@ -2562,6 +2578,8 @@ export class GameScene extends Phaser.Scene {
     this.lastShieldGainAt = now;
     gameState.shieldHp = Math.min(this.shieldCap(), gameState.shieldHp + gain);
     this.showFloatingText(this.player.x, this.player.y - 62, `护盾+${gain}`, '#34D399');
+    // 护盾获得：长音有记忆点，与"护盾破裂/受伤"的短促音区分
+    this.playSfx('shield', 0.6);
   }
 
   /** 冲刺冷却 = §4.3 负载倍率 × 装备(靴子)冷却缩减。 */
@@ -3263,9 +3281,13 @@ export class GameScene extends Phaser.Scene {
       this.chooseEventOption(opt);
     };
     window.addEventListener('keydown', this.eventKeyHandler);
-    // 移动端出口：面板无 Esc 键可依，必须有一个可点的关闭按钮
+    // 移动端出口：面板无 Esc 键可依，必须有一个可点的关闭按钮。
+    // 关闭时播 release（松手/退出），与 collapse（收起大面板）区分。
     const closeBtn = document.getElementById('event-close');
-    if (closeBtn) closeBtn.onclick = () => this.closeEventOverlay();
+    if (closeBtn) closeBtn.onclick = () => {
+      this.playSfx('release', 0.5);
+      this.closeEventOverlay();
+    };
   }
 
   /** 结算一个选项：把 resolve 的纯增量落到 gameState 上。 */
@@ -5221,43 +5243,45 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** 播放已加载的音效资源（受设置中音量/音效开关控制） */
-  private playSfx(key: string, volume = 1, rate = 1): void {
-    if (!getSettings().effectsEnabled) return;
-    // 四重节流：总并发 12 / 单源冷却 160ms / 全局间隔 45ms / 叠音上限 2（借鉴卫戍协议 SfxLimiter）
-    if (!this.sfxLimiter.tryPlay(key, this.time.now)) return;
-    this.unlockAudio();
-    try {
-      this.sound.play(key, { volume: volume * (getSettings().volume / 100), rate });
-    } catch { /* 音频不可用时静默 */ }
+  /**
+   * 语义音效入口（P2 音频改造后唯一入口）。
+   *
+   * 旧实现直接 `this.sound.play(key)`，而 AssetLoader 注册的 soundId 是
+   * 「文件名去扩展名」（h_knife），与语义 key（hit-light）毫无交集，
+   * 结果是所有战斗音实际都播不出来、被 try/catch 静默吞掉。
+   *
+   * 现在统一走 AudioDirector（语义解析 → 声部预算/抢占 → 真实播放与释放）。
+   */
+  private playSfx(key: string, volume = 1, rate?: number): void {
+    if (!this.audio) return;
+    this.audio.play({ event: key, volume, rate });
   }
 
   /**
-   * 音频解锁（浏览器自动播放策略）：WebAudio context 初始 suspended，
-   * 必须在用户手势内 resume 才能出声。playSfx 由攻击/命中/交互触发，
-   * 天然在手势上下文里，所以这里是解锁的兜底入口。Phaser 的 HTML5 后端
-   * 没有这个限制（用的是 <audio> 元素），故只在 WebAudio 后端生效。
+   * 音频解锁：委托给 AudioDirector（它复用 Phaser 自己的 WebAudio context，
+   * 不再另造平行 context）。由真实手势路径调用。
    */
   private unlockAudio(): void {
-    if (this.audioUnlocked) return;
-    const sm = this.sound as unknown as { context?: AudioContext; resume?: () => void };
-    const ctx = sm.context;
-    if (ctx && ctx.state === 'suspended') {
-      void ctx.resume().catch(() => { /* 手势外失败则下次再试 */ });
-    }
-    if (ctx && ctx.state === 'running') this.audioUnlocked = true;
+    this.audio?.unlock();
   }
-  private audioUnlocked = false;
 
   private playTone(frequency: number, duration: number, type: OscillatorType, volume: number): void {
+    if (!getSettings().effectsEnabled) return;
     const context = (this.sound as Phaser.Sound.WebAudioSoundManager).context;
     if (!context) return;
-    // 浏览器自动播放策略：AudioContext 初始为 suspended，必须在用户手势内 resume。
-    // 项目没有任何其它解锁点，所以在这里懒解锁——playTone 本身就是在玩家操作
-    // （攻击/命中/交互）时被调用的，天然处于手势上下文中。
+    // 自动播放策略：suspended 时先解锁（复用 Phaser 自己的 context），本帧跳过，
+    // 下一帧起恢复正常——不在 update 里假设自己仍处于浏览器手势上下文中。
     if (context.state === 'suspended') {
-      void context.resume().catch(() => { /* 手势外 resume 失败则等下次 */ });
-      return; // 本帧先不出声，下一帧起恢复正常
+      this.unlockAudio();
+      return;
     }
+    // 裸 oscillator 若不计入任何预算，会绕过声部并发上限；先用轻量闸门限制
+    // 同时存在的合成音数量（P3 再把合成音纳入统一混音）。
+    if (this.activeTones >= GameScene.MAX_CONCURRENT_TONES) return;
+    this.activeTones += 1;
+    const toneDone = (): void => {
+      this.activeTones = Math.max(0, this.activeTones - 1);
+    };
     try {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
@@ -5269,10 +5293,16 @@ export class GameScene extends Phaser.Scene {
       gain.connect(context.destination);
       oscillator.start();
       oscillator.stop(context.currentTime + duration);
+      oscillator.onended = toneDone;
     } catch {
       // 音频上下文不可用时静默跳过
-      }
+      toneDone();
+    }
   }
+
+  /** 同时存在的合成音上限（裸 oscillator 的并发保护，P3 纳入统一混音后移除）。 */
+  private activeTones = 0;
+  private static readonly MAX_CONCURRENT_TONES = 6;
 
   /**
    * 开启一次近战攻击前摇（Hades「敌人意图必须 100% 可读」）。
@@ -6089,6 +6119,8 @@ export class GameScene extends Phaser.Scene {
     target.layerPips.forEach((pip) => pip.destroy());
     target.eliteRing?.destroy();
     target.eliteRing = null;
+    // 击杀专属音（计划 §5.2）：与普通命中分开，否则"打死了"没有确认感
+    this.playSfx(target.isElite ? 'kill' : 'kill', target.isElite ? 0.8 : 0.6);
     haptic(30);
     target.aura.setVisible(false);
     target.glow.setVisible(false);
@@ -6345,7 +6377,9 @@ export class GameScene extends Phaser.Scene {
     this.dashMotionTimer = BALANCE.dash.motionSeconds;
     // 冲刺拉伸：沿移动方向拉长本体，让位移方向与速度感一致
     this.playPlayerSquash(0.16, 0.2, true);
-    this.playSfx('collapse', 0.5); // 语义同 Chemic huu=底部面板收起，作冲刺音
+    // 冲刺音（语义修正）：原先借用 collapse（Chemic 的"面板收起"），
+    // 玩家会把冲刺听成关面板。dash 是清单里为冲刺准备的语义。
+    this.playSfx('dash', 0.55);
     this.playerBody.setMaxVelocity(BALANCE.dash.maxVelocity, BALANCE.dash.maxVelocity);
     this.playerBody.setVelocity(dir.x * BALANCE.dash.velocity, dir.y * BALANCE.dash.velocity);
     // ---- 冲刺祝福 ----
