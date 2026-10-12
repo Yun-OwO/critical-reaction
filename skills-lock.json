@@ -7,6 +7,36 @@
       "skillPath": "SKILL.md",
       "computedHash": "74aa35d2290dbc6ceaa02e0ad225f9c0c227bf612899f06b566d909281f5f44c"
     },
+    "phaser-architect": {
+      "source": "yakoub-ai/phaser4-gamedev",
+      "sourceType": "github",
+      "skillPath": "skills/phaser-architect/SKILL.md",
+      "computedHash": "904664438e7ec076e36286756b49e20fa5d11d66f965b149846c4da6f3ffce14"
+    },
+    "phaser-feedback": {
+      "source": "yakoub-ai/phaser4-gamedev",
+      "sourceType": "github",
+      "skillPath": "skills/phaser-feedback/SKILL.md",
+      "computedHash": "b3cc42f4d7aa24c05284bd5a752516e30f6442d9ce06e9b3ddf69302388dca83"
+    },
+    "phaser-mobile": {
+      "source": "yakoub-ai/phaser4-gamedev",
+      "sourceType": "github",
+      "skillPath": "skills/phaser-mobile/SKILL.md",
+      "computedHash": "1ec9b357bf6462921a25a1d78c196960d5db32348b4db2252de8f77ee36b483f"
+    },
+    "phaser-physics": {
+      "source": "yakoub-ai/phaser4-gamedev",
+      "sourceType": "github",
+      "skillPath": "skills/phaser-physics/SKILL.md",
+      "computedHash": "b2401889654b705ef222d5902c951abac905bec943980e3676cb5f52f51c685a"
+    },
+    "phaser-playtest": {
+      "source": "yakoub-ai/phaser4-gamedev",
+      "sourceType": "github",
+      "skillPath": "skills/phaser-playtest/SKILL.md",
+      "computedHash": "b4effc2622e3e2652f631d3a96ff67e39c04ced42d7fbe9aa5bdd3841aa07c4b"
+    },
     "roguelike": {
       "source": "gamedev-skills/awesome-gamedev-agent-skills",
       "sourceType": "github",

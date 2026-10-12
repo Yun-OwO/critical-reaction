@@ -72,7 +72,7 @@ import type { Diamond } from '../utils/diamond';
 import { getVisualProfile } from '../visual/quality';
 import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
-import { computeFontScale, computeUiScale, currentViewportMetrics } from '../ui/uiScale';
+import { computeFontScale, computeUiScale, currentViewportMetrics, isTouchDevice } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
 import { FxPool, FX_TEX } from '../utils/Fx';
@@ -798,7 +798,10 @@ export class GameScene extends Phaser.Scene {
     this.dashMotionTimer = 0;
     // 初始即处于氧化态（base 态已移除），轨道颜色与模式一致
     this.orbitColor = 0xff8a4c;
-    this.isTouch = this.sys.game.device.input.touch;
+    // 设备判定统一走 uiScale.isTouchDevice：GameScene 原先用 device.input.touch、
+    // UIScene 用 maxTouchPoints，两个场景对同一台设备可能给出不同答案，
+    // 导致 HUD 与触屏控件的布局假设互相矛盾（一台"半移动端"的设备）。
+    this.isTouch = isTouchDevice();
     // 移动端屏幕小、PPI 高：等比缩放后文字会小到不可读，需按实际 CSS 像素密度补偿放大
     const gMetrics = currentViewportMetrics(this.scale.width, this.scale.height, this.isTouch);
     this.uiScale = computeUiScale(gMetrics);
@@ -5200,14 +5203,39 @@ export class GameScene extends Phaser.Scene {
     if (!getSettings().effectsEnabled) return;
     // 四重节流：总并发 12 / 单源冷却 160ms / 全局间隔 45ms / 叠音上限 2（借鉴卫戍协议 SfxLimiter）
     if (!this.sfxLimiter.tryPlay(key, this.time.now)) return;
+    this.unlockAudio();
     try {
       this.sound.play(key, { volume: volume * (getSettings().volume / 100), rate });
     } catch { /* 音频不可用时静默 */ }
   }
 
+  /**
+   * 音频解锁（浏览器自动播放策略）：WebAudio context 初始 suspended，
+   * 必须在用户手势内 resume 才能出声。playSfx 由攻击/命中/交互触发，
+   * 天然在手势上下文里，所以这里是解锁的兜底入口。Phaser 的 HTML5 后端
+   * 没有这个限制（用的是 <audio> 元素），故只在 WebAudio 后端生效。
+   */
+  private unlockAudio(): void {
+    if (this.audioUnlocked) return;
+    const sm = this.sound as unknown as { context?: AudioContext; resume?: () => void };
+    const ctx = sm.context;
+    if (ctx && ctx.state === 'suspended') {
+      void ctx.resume().catch(() => { /* 手势外失败则下次再试 */ });
+    }
+    if (ctx && ctx.state === 'running') this.audioUnlocked = true;
+  }
+  private audioUnlocked = false;
+
   private playTone(frequency: number, duration: number, type: OscillatorType, volume: number): void {
     const context = (this.sound as Phaser.Sound.WebAudioSoundManager).context;
     if (!context) return;
+    // 浏览器自动播放策略：AudioContext 初始为 suspended，必须在用户手势内 resume。
+    // 项目没有任何其它解锁点，所以在这里懒解锁——playTone 本身就是在玩家操作
+    // （攻击/命中/交互）时被调用的，天然处于手势上下文中。
+    if (context.state === 'suspended') {
+      void context.resume().catch(() => { /* 手势外 resume 失败则等下次 */ });
+      return; // 本帧先不出声，下一帧起恢复正常
+    }
     try {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
