@@ -35,6 +35,17 @@ export const MIN_READABLE_CSS = 11;
 export const BASE_FONT_DESIGN = 14;
 /** UI 放大上限：继续放大会明显遮挡战场，收益被视野损失抵消。 */
 export const MAX_MOBILE_UI_SCALE = 1.6;
+/**
+ * 字号放大上限：可以比几何放大得更狠。
+ *
+ * 两者必须分开，原因是它们在移动端的需求是**相反**的：
+ * - 几何（血条长度、核心半径、元素间距）放大 → 直接吃战场视野，且会把靠底部的
+ *   元素推出屏幕（864 高的 20:9 屏上就实测到有元素掉出屏幕 18px）；
+ * - 字号放大 → 只占元素自身那点面积，是「可读性」唯一该付的代价。
+ *
+ * 用同一个 s 放大两者，结果是两头不讨好：字还没到可读线，元素已经顶出屏幕。
+ */
+export const MAX_MOBILE_FONT_SCALE = 2.4;
 /** 控件与屏幕边缘的最小留白（CSS px）。 */
 export const CONTROL_EDGE_PAD_CSS = 8;
 /**
@@ -82,14 +93,29 @@ export function computeGeometryScale(m: ViewportMetrics): number {
  * - 桌面端：与控件几何一致，仅按 1920 设计稿宽度等比缩放。
  * - 触屏端：额外按可读性反推下限，使基准设计字号落到 CSS 像素上不小于 MIN_READABLE_CSS，
  *   并整体钳制在 [0.5, MAX_MOBILE_UI_SCALE] 内。
+ *
+ * 注意这里**不再追求把字推到可读线**：上限 1.6 往往够不到（20:9 实测需要 1.886），
+ * 继续加只会把元素顶出屏幕。缺的那部分由 computeFontScale 单独补在字号上。
  */
 export function computeUiScale(m: ViewportMetrics): number {
+  const base = computeGeometryScale(m);
+  if (!m.touch) return base;
+  return clamp(base, 0.5, MAX_MOBILE_UI_SCALE);
+}
+
+/**
+ * 字号缩放因子：只作用于文字，不动几何。
+ *
+ * 与 computeUiScale 分离的理由见 MAX_MOBILE_FONT_SCALE。
+ * 桌面端恒等于几何比例（不额外放大），触屏端按可读性反推并单独钳上限。
+ */
+export function computeFontScale(m: ViewportMetrics): number {
   const base = computeGeometryScale(m);
   if (!m.touch) return base;
   const per = cssPerUnit(m);
   if (per <= 0) return base;
   const readable = MIN_READABLE_CSS / (BASE_FONT_DESIGN * per);
-  return clamp(Math.max(base, readable), 0.5, MAX_MOBILE_UI_SCALE);
+  return clamp(Math.max(base, readable), 0.5, MAX_MOBILE_FONT_SCALE);
 }
 
 /** 控件边缘留白（设计单位）：安全区与固定留白取较大者后再换算。 */

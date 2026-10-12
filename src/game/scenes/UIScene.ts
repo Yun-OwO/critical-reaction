@@ -17,6 +17,7 @@ import { describeLoad } from '../combat/load';
 import {
   computeGeometryScale,
   computeTouchControlLayout,
+  computeFontScale,
   computeUiScale,
   currentViewportMetrics,
   hudMaxWidth,
@@ -120,6 +121,8 @@ export class UIScene extends Phaser.Scene {
   /** UI 几何缩放因子：1920 宽设计稿基准。内部分辨率随设备缩小时等比缩放，
    *  保证控件在屏幕上的实际大小与贴边位置恒定（移动端画布更小，不缩放会显示过大且错位）。 */
   private s = 1;
+  /** 字号缩放因子（只作用于文字，与几何分离；见 uiScale.computeFontScale）。 */
+  private fs = 1;
   /** 动作控件专用缩放：只按设计稿等比，不含移动端可读性补偿，保持控件原有尺寸手感。 */
   private touchScale = 1;
   /** create 时的内部分辨率：resize 事件用它判断比例是否真的变了（FIT 窗口缩放不改变内部分辨率） */
@@ -149,6 +152,7 @@ export class UIScene extends Phaser.Scene {
     // 移动端屏幕小、PPI 高：等比缩放后文字会小到不可读，需按实际 CSS 像素密度补偿放大
     const metrics = currentViewportMetrics(W, H, this.isMobile);
     const s = this.s = computeUiScale(metrics);
+    const fs = this.fs = computeFontScale(metrics);
     // 动作控件不参与可读性补偿：放大后会挤占战场并破坏原有操作手感
     this.touchScale = computeGeometryScale(metrics);
     // 控件布局先于 HUD 计算：HUD 的右下元素需要知道按钮组占据到哪里才能避让
@@ -192,7 +196,7 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0, 0).setDepth(11);
     // 哈迪斯式血量：条右侧纯数值（护盾以 +N 追加），不再写句子
     this.hpValText = this.add.text(barX + this.ehpBarW + 14 * s, barY + 10 * s, '', {
-      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(15 * s)}px`
+      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(15 * fs)}px`
     }).setOrigin(0, 0.5).setDepth(12);
 
     // ---- 电子轨道生命核心（§14.3）：置于血条左上方，成为左下角的视觉锚点 ----
@@ -202,20 +206,20 @@ export class UIScene extends Phaser.Scene {
 
     // 哈迪斯式紧凑数值：图标+数值（细节全部收进状态面板 ☰）
     this.electronValText = this.add.text(coreX + coreR + 12 * s, coreY, '', {
-      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * s)}px`, fontStyle: 'bold'
+      color: '#FFFFFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * fs)}px`, fontStyle: 'bold'
     }).setOrigin(0, 0.5).setDepth(12);
     this.modeChipText = this.add.text(coreX + coreR + 84 * s, coreY, '', {
-      color: '#FF8A4C', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`, fontStyle: 'bold'
+      color: '#FF8A4C', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`, fontStyle: 'bold'
     }).setOrigin(0, 0.5).setDepth(12);
 
     // 催化券读数（局内货币）：必须常驻可见，否则整个投资闭环玩家算不清账。
     // 放在模式芯片正下方，不挤占温度计那一列。
     this.couponText = this.add.text(coreX + coreR + 84 * s, coreY + 20 * s, '', {
-      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(13 * s)}px`
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(13 * fs)}px`
     }).setOrigin(0, 0.5).setDepth(12);
 
     this.dashText = this.add.text(barX, barY + 34 * s, '', {
-      color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(13 * s)}px`
+      color: '#9FD8E8', fontFamily: 'monospace', fontSize: `${Math.round(13 * fs)}px`
     }).setDepth(12);
 
     // 右下染料槽芯片已移除（v0.2.2：进化等级改由状态面板与主槽徽标呈现）
@@ -248,10 +252,10 @@ export class UIScene extends Phaser.Scene {
       this.tempTicks.strokePath();
     }
     this.tempLabel = this.add.text(thermoX + 9 * s, thermoTop - 26 * s, '', {
-      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`
     }).setOrigin(0.5).setDepth(12);
     this.tempStateLabel = this.add.text(thermoX + 9 * s, thermoBottom + 8 * s, '', {
-      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`
+      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * fs)}px`
     }).setOrigin(0.5).setDepth(12);
 
     // ---- 顶部：Boss 血条 ----
@@ -259,7 +263,7 @@ export class UIScene extends Phaser.Scene {
     // 故再按屏宽比例封一个下限，保证血条在窄屏上仍然可读。
     const bossBarW = Math.max(Math.min(620 * s, W - 320 * s), W * 0.42);
     this.bossNameText = this.add.text(W / 2, 56 * s, '', {
-      color: '#E0AAFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * s)}px`, fontStyle: 'bold'
+      color: '#E0AAFF', fontFamily: 'monospace', fontSize: `${Math.round(16 * fs)}px`, fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(12).setVisible(false);
     this.bossBarBg = this.add.rectangle(W / 2, 82 * s, bossBarW, 14 * s, 0x06131e, 0.8)
       .setStrokeStyle(1.5, 0x9d4edd, 0.95).setDepth(11).setOrigin(0.5, 0).setVisible(false);
@@ -272,32 +276,32 @@ export class UIScene extends Phaser.Scene {
     }
 
     this.eventText = this.add.text(W / 2, 140 * s, '', {
-      color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(22 * s)}px`
+      color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(22 * fs)}px`
     }).setOrigin(0.5).setAlpha(0).setDepth(12);
     this.electronDeltaText = this.add.text(barX + this.ehpBarW + 14 * s, barY - 30 * s, '', {
-      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(20 * s)}px`, fontStyle: 'bold'
+      color: '#67E8F9', fontFamily: 'monospace', fontSize: `${Math.round(20 * fs)}px`, fontStyle: 'bold'
     }).setOrigin(0, 0.5).setAlpha(0).setDepth(12);
     this.weaponText = this.add.text(W / 2, H - 34 * s, '', {
-      color: '#A0A0A0', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+      color: '#A0A0A0', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`
     }).setOrigin(0.5, 1).setAlpha(0).setDepth(12);
     // 哈迪斯式祝福列：左缘垂直图标芯片（菱形底 + 图标 + 等级徽标）
     this.boonChipLayer = this.add.container(0, 0).setDepth(12);
     this.boonChipKey = '';
     // 哈迪斯式右下数值行：样本 ◆ / 负载 ▲ / 催化 ✦（右对齐链，图标+数值）
     this.sampleValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
-      color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+      color: '#FDE047', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`
     }).setOrigin(1, 1).setDepth(12);
     this.loadValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
-      color: '#D4E8EE', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+      color: '#D4E8EE', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`
     }).setOrigin(1, 1).setDepth(12);
     this.catalValText = this.add.text(this.hudRightVal, H - 22 * s, '', {
-      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(14 * s)}px`
+      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(14 * fs)}px`
     }).setOrigin(1, 1).setDepth(12);
     this.hudRightVal = this.hudRightEdge(W, s);
     this.sampleValText.setPosition(this.hudRightVal, H - 22 * s);
     // 开发者调试叠层：右上角小字（FPS / 敌人数 / 碰撞箱），默认隐藏
     this.devOverlayText = this.add.text(W - 14 * s, 14 * s, '', {
-      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * s)}px`,
+      color: '#5CFFB1', fontFamily: 'monospace', fontSize: `${Math.round(12 * fs)}px`,
       align: 'right', backgroundColor: '#00000099', padding: { x: 6 * s, y: 4 * s }
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(9998).setVisible(false);
 

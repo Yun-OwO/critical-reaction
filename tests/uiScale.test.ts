@@ -14,6 +14,8 @@ import {
   hudRightEdge,
   joystickTravel,
   parseSafeInsets,
+  computeFontScale,
+  MAX_MOBILE_FONT_SCALE,
   type ControlBox,
   type ViewportMetrics
 } from '../src/game/ui/uiScale';
@@ -43,23 +45,22 @@ describe('uiScale 移动端 UI 缩放', () => {
     expect(computeUiScale(metrics(1920, 1080, 800, 450, false))).toBeCloseTo(1);
   });
 
-  it('触屏端需求超过上限时被钳制，但仍明显放大', () => {
-    // 典型横屏手机：CSS 844x390，内部分辨率 1920x887
+  it('触屏端几何不再追可读性，只保留等比缩放', () => {
+    // 典型横屏手机：CSS 844x390，内部分辨率 1920x887。
+    // 可读性需求(1.886)超过几何上限，但几何**不再**去追它——
+    // 否则元素会被顶出屏幕（864 高的 20:9 上实测有元素掉出 18px）。
+    // 缺的那部分由 computeFontScale 单独补在字号上。
     const m = metrics(1920, 887, 844, 390, true);
     const per = cssPerUnit(m);
     expect(MIN_READABLE_CSS / (BASE_FONT_DESIGN * per)).toBeGreaterThan(MAX_MOBILE_UI_SCALE);
-    expect(computeUiScale(m)).toBeCloseTo(MAX_MOBILE_UI_SCALE);
-    // 落屏字号必须高于未补偿的等比缩放（1.0），否则补偿没有意义
-    expect(BASE_FONT_DESIGN * computeUiScale(m) * per).toBeGreaterThan(BASE_FONT_DESIGN * per * 1.5);
+    expect(computeUiScale(m)).toBeCloseTo(1); // 长边 1920 → 几何恒为 1
   });
 
-  it('触屏端可读性需求在上限内时精确命中该值，且不小于等比缩放', () => {
-    const m = metrics(1920, 900, 1280, 600, true);
-    const per = cssPerUnit(m);
-    const expected = MIN_READABLE_CSS / (BASE_FONT_DESIGN * per);
-    expect(expected).toBeGreaterThan(1);
-    expect(expected).toBeLessThan(MAX_MOBILE_UI_SCALE);
-    expect(computeUiScale(m)).toBeCloseTo(expected);
+  it('触屏端几何不超过上限（避免元素顶出屏幕）', () => {
+    for (const m of [metrics(1920, 864, 800, 543, true), metrics(1920, 887, 844, 390, true)]) {
+      expect(computeUiScale(m)).toBeLessThanOrEqual(MAX_MOBILE_UI_SCALE);
+      expect(computeUiScale(m)).toBeGreaterThan(0);
+    }
   });
 
   it('触屏端不会因补偿而缩小（与等比缩放取较大值）', () => {
@@ -68,9 +69,9 @@ describe('uiScale 移动端 UI 缩放', () => {
     expect(computeUiScale(m)).toBeCloseTo(1);
   });
 
-  it('竖屏窄画布仍能放大到可读（不受 0.5 下限拖累）', () => {
+  it('竖屏窄画布的字号仍能放大到可读（不受 0.5 下限拖累）', () => {
     const m = metrics(887, 1920, 390, 844, true);
-    expect(computeUiScale(m)).toBeGreaterThan(1);
+    expect(computeFontScale(m)).toBeGreaterThan(1);
   });
 
   it('cssPerUnit 取宽高两个方向比例的较小值', () => {
@@ -83,8 +84,9 @@ describe('uiScale 动作控件几何缩放', () => {
   it('只按 1920 设计稿等比缩放，触屏端不做放大', () => {
     // 手机横屏：内部分辨率长边 1920，几何缩放必然为 1（控件尺寸与设计稿一致）
     expect(computeGeometryScale(metrics(1920, 887, 844, 390, true))).toBeCloseTo(1);
-    // 同一视口下 UI 缩放被补偿放大，两者必须分离
-    expect(computeUiScale(metrics(1920, 887, 844, 390, true))).toBeGreaterThan(1);
+    // 同一视口下**字号**被补偿放大，几何不动——分离就是为了避免元素顶出屏幕
+    expect(computeFontScale(metrics(1920, 887, 844, 390, true))).toBeGreaterThan(1);
+    expect(computeUiScale(metrics(1920, 887, 844, 390, true))).toBeCloseTo(1);
   });
 
   it('与桌面端等比缩放一致且钳制在 [0.5, 1]', () => {
@@ -251,5 +253,40 @@ describe('uiScale 安全区解析', () => {
   it('空值与非法值按 0 处理', () => {
     expect(parseSafeInsets({ top: '', right: 'abc', bottom: 'calc(1px)', left: '-10px' }))
       .toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+  });
+});
+describe('字号与几何分离（移动端 UI 尺寸问题的解法）', () => {
+  /**
+   * 存在的原因：用同一个 s 放大几何与文字，在 20:9 手机上是两头不讨好——
+   * 几何上限 1.6 够不到可读线(1.886)，字仍只有 9.33 CSS px，
+   * 元素却已经放大 1.6 倍并把底部元素顶出屏幕。
+   */
+  it('字号上限高于几何上限', () => {
+    expect(MAX_MOBILE_FONT_SCALE).toBeGreaterThan(MAX_MOBILE_UI_SCALE);
+  });
+
+  it('20:9 手机上字号能达到可读线，几何不会', () => {
+    const m = metrics(1920, 864, 800, 543, true);
+    const per = cssPerUnit(m);
+    const viaFont = BASE_FONT_DESIGN * computeFontScale(m) * per;
+    const viaGeom = BASE_FONT_DESIGN * computeUiScale(m) * per;
+    expect(viaFont).toBeGreaterThanOrEqual(MIN_READABLE_CSS - 1e-9);
+    expect(viaGeom).toBeLessThan(MIN_READABLE_CSS);
+  });
+
+  it('桌面端字号不额外放大（与几何一致）', () => {
+    const m = metrics(1920, 1080, 1920, 1080, false);
+    expect(computeFontScale(m)).toBeCloseTo(computeUiScale(m), 6);
+  });
+
+  it('字号也不会无限放大', () => {
+    // 极端：CSS 极小
+    const m = metrics(1920, 864, 200, 90, true);
+    expect(computeFontScale(m)).toBeLessThanOrEqual(MAX_MOBILE_FONT_SCALE);
+  });
+
+  it('CSS 充足时不放大', () => {
+    const m = metrics(1920, 900, 1920, 900, true);
+    expect(computeFontScale(m)).toBeCloseTo(1, 6);
   });
 });

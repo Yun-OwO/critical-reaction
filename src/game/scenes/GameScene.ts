@@ -72,7 +72,7 @@ import type { Diamond } from '../utils/diamond';
 import { getVisualProfile } from '../visual/quality';
 import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
-import { computeUiScale, currentViewportMetrics } from '../ui/uiScale';
+import { computeFontScale, computeUiScale, currentViewportMetrics } from '../ui/uiScale';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
 import { FxPool, FX_TEX } from '../utils/Fx';
@@ -676,6 +676,8 @@ export class GameScene extends Phaser.Scene {
   }
   /** UI 缩放因子（1920 设计稿基准）：内部分辨率缩小时等比缩放浮字/提示字号，保持屏幕观感。 */
   private uiScale = 1;
+  /** 字号缩放因子（只作用于文字，与 uiScale 分离；见 uiScale.computeFontScale）。 */
+  private fontScale = 1;
 
   /** 从池中取出一条战斗文本（无可用则新建），调用方负责用完后 recycle。 */
   private obtainCombatText(): Phaser.GameObjects.Text {
@@ -798,7 +800,9 @@ export class GameScene extends Phaser.Scene {
     this.orbitColor = 0xff8a4c;
     this.isTouch = this.sys.game.device.input.touch;
     // 移动端屏幕小、PPI 高：等比缩放后文字会小到不可读，需按实际 CSS 像素密度补偿放大
-    this.uiScale = computeUiScale(currentViewportMetrics(this.scale.width, this.scale.height, this.isTouch));
+    const gMetrics = currentViewportMetrics(this.scale.width, this.scale.height, this.isTouch);
+    this.uiScale = computeUiScale(gMetrics);
+    this.fontScale = computeFontScale(gMetrics);
     // 轨道细分按质量档（低 24 / 中 36 / 高 48），减少每帧 Graphics 重建成本
     this.orbitSegments = getVisualProfile().orbitSegments;
     this.cameras.main.setBackgroundColor('#0A0E1A');
@@ -919,12 +923,12 @@ export class GameScene extends Phaser.Scene {
       this.add.text(40 * this.uiScale, 40 * this.uiScale, '反应釜 / 房间探索', {
         color: '#FFFFFF',
         fontFamily: 'monospace',
-        fontSize: `${Math.round(24 * this.uiScale)}px`
+        fontSize: `${Math.round(24 * this.fontScale)}px`
       });
       this.add.text(40 * this.uiScale, 78 * this.uiScale, _isMob ? '摇杆移动   攻击   冲刺   R 状态   E 互动' : 'WASD 移动   左键/空格攻击   长按蓄力特殊攻击(消耗自由电子强化)   右键冲刺   R 状态   E 互动', {
         color: '#67E8F9',
         fontFamily: 'monospace',
-        fontSize: `${Math.round(16 * this.uiScale)}px`
+        fontSize: `${Math.round(16 * this.fontScale)}px`
       });
     }
     this.scene.launch('UIScene');
@@ -2197,7 +2201,7 @@ export class GameScene extends Phaser.Scene {
     // 等比单调字体的字宽约 0.6em，留 0.9 的屏宽余量即 (W*0.9)/(len*0.6)。
     const fit = (this.scale.width * 0.9) / Math.max(1, text.length * 0.6);
     const flash = this.add.text(this.diamondCx, this.diamondCy - 160, text, {
-      color, fontFamily: 'monospace', fontSize: `${Math.round(Math.min(30 * this.uiScale, fit))}px`
+      color, fontFamily: 'monospace', fontSize: `${Math.round(Math.min(30 * this.fontScale, fit))}px`
     }).setOrigin(0.5).setDepth(9999).setAlpha(0);
     this.tweens.add({
       targets: flash, alpha: { from: 0, to: 1 }, y: flash.y - 30, duration: 500, ease: 'Cubic.out',
@@ -3766,7 +3770,7 @@ export class GameScene extends Phaser.Scene {
 
   private showFloatingText(x: number, y: number, text: string, color: string): void {
     const t = this.obtainCombatText();
-    t.setFontSize(20 * this.uiScale)
+    t.setFontSize(20 * this.fontScale)
       .setPosition(x, y)
       .setText(text)
       .setColor(color)
