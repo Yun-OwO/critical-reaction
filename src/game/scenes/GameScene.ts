@@ -7510,7 +7510,7 @@ export class GameScene extends Phaser.Scene {
     // 三阶色板：顶面 = accent 原色，左面 darken(28)，右面 darken(45)；厚度 20/28 两档立体、12px 平铺
     // 12px 是"可走上的浅台"——能走上去的就不该挤出侧壁：侧壁暗示会被挡住，实际却无碰撞，
     // 视觉与通行规则相反。故矮台只画平贴地面的顶面菱形，只有 20/28 的高地才立起来。
-    const isoBlock = (gx: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, height: number, top: number, rim: number): void => {
+    const isoBlock = (gx: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, height: number, top: number, rim: number, collidable: boolean): void => {
       // 顶面菱形：立起的块上移 height，平铺的浅台贴地（height 归零）
       const lift = height <= 12 ? 0 : height;
       gx.fillStyle(top, 1);
@@ -7521,8 +7521,10 @@ export class GameScene extends Phaser.Scene {
       gx.lineTo(x - w / 2, y - lift);
       gx.closePath();
       gx.fillPath();
-      // 顶面边缘线（群系强调色，勾勒体积轮廓）
-      gx.lineStyle(1.2, rim, 0.5);
+      // 顶面边缘线（群系强调色，勾勒体积轮廓）。
+      // 不可通过的块把描边提亮加粗——这是「这里过不去」最主要的视觉信号：
+      // 玩家扫一眼地图，亮边围出来的就是墙，其余全是格栅地。
+      gx.lineStyle(collidable ? 2.2 : 1.2, rim, collidable ? 0.85 : 0.5);
       gx.strokePath();
       if (lift === 0) return; // 浅台到此为止，无侧面
       const sideL = Phaser.Display.Color.IntegerToColor(top).darken(28).color;
@@ -7548,9 +7550,19 @@ export class GameScene extends Phaser.Scene {
       gx.lineTo(x + w / 2, y);
       gx.closePath();
       gx.fillPath();
+      // 斜纹警示（仅不可通过的块）：顶面画两条低透明度斜线，与地面的"网格通透"
+      // 形成对比。Hades 对不可走区域的惯用做法也是纹理密度差而非颜色突变——
+      // 颜色突变会被误读成"另一种地面"，密度差才读作"这里不能走"。
+      gx.lineStyle(1.5, rim, 0.35);
+      gx.beginPath();
+      gx.moveTo(x - w / 4, y - h / 4 - lift);
+      gx.lineTo(x + w / 4, y - lift);
+      gx.moveTo(x - w / 4, y + h / 4 - lift - 8);
+      gx.lineTo(x + w / 4, y - 8 - lift);
+      gx.strokePath();
     };
     for (const blk of terrain.blocks) {
-      isoBlock(terrainGfx, blk.x, blk.y, blk.w, blk.h, blk.height, blk.top, blk.rim);
+      isoBlock(terrainGfx, blk.x, blk.y, blk.w, blk.h, blk.height, blk.top, blk.rim, blk.collidable);
     }
     // 碰撞体积（v0.2.3）：仅较高棱柱可碰撞——静态体略小于视觉（留出贴边走位空间）；
     // 敌人不与之碰撞（电子体穿行，避免 AI 卡死），玩家需要绕行

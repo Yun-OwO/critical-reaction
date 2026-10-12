@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "act-combat-design": {
+      "source": "koisama0411/act-combat-design",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "74aa35d2290dbc6ceaa02e0ad225f9c0c227bf612899f06b566d909281f5f44c"
+    },
+    "roguelike": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/genres/roguelike/SKILL.md",
+      "computedHash": "f31dab5b014cbe1ed2cc9dbba9be9d2541fbf3280684baacc986820da53387f6"
+    },
+    "tileable-texture": {
+      "source": "SummerEngine/summer",
+      "sourceType": "github",
+      "skillPath": "library/skills/tileable-texture/SKILL.md",
+      "computedHash": "034aaeb9a60f7f80236d88f34ba14e9b34fc369d9c2d93d9d96be2bb90667629"
+    }
+  }
+}

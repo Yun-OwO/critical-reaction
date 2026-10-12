@@ -1,7 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 375 135">
-  <g fill="#141d27" fill-opacity=".5" stroke="#3b4a5c" stroke-width="2.4" stroke-opacity=".45" stroke-linejoin="round">
+  <!-- 群系色地表（3 联菱形）：同为半透明格栅语言，网格线密但填充极淡 -->
+  <g fill="#141d27" fill-opacity=".26" stroke="#46586c" stroke-width="2" stroke-opacity=".5" stroke-linejoin="round">
     <path d="M62 14 L120 67 L62 120 L4 67 Z"/>
     <path d="M188 10 L246 63 L188 116 L130 63 Z"/>
     <path d="M313 16 L371 69 L313 122 L255 69 Z"/>
+  </g>
+  <g stroke="#46586c" stroke-width="1.1" stroke-opacity=".3" fill="none">
+    <path d="M33 40 L91 40 M33 67 L91 67 M33 94 L91 94"/>
+    <path d="M47 26 L47 108 M62 18 L62 116 M77 26 L77 108"/>
+    <path d="M159 36 L217 36 M159 63 L217 63 M159 90 L217 90"/>
+    <path d="M173 22 L173 104 M188 14 L188 112 M203 22 L203 104"/>
+    <path d="M284 42 L342 42 M284 69 L342 69 M284 96 L342 96"/>
+    <path d="M298 28 L298 110 M313 20 L313 118 M328 28 L328 110"/>
   </g>
 </svg>

@@ -1,4 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <path d="M32 10 L56 32 L32 54 L8 32 Z" fill="#17212c" fill-opacity=".55" stroke="#3b4a5c" stroke-width="1.6" stroke-opacity=".5"/>
-  <path d="M32 22 L43 32 L32 42 L21 32 Z" fill="none" stroke="#2c3947" stroke-width="1.2" stroke-opacity=".5"/>
+  <!-- 半透明格栅地砖：iso 菱形轮廓 + 内部网格线。
+       玩家读作"网格 = 可通行"，与棱柱的立体/斜纹（不可通行）形成密度对比。 -->
+  <path d="M32 10 L56 32 L32 54 L8 32 Z" fill="#17212c" fill-opacity=".28" stroke="#46586c" stroke-width="1.4" stroke-opacity=".55"/>
+  <g stroke="#46586c" stroke-width="1" stroke-opacity=".38">
+    <path d="M20 22 L44 22 M20 32 L44 32 M20 42 L44 42" fill="none"/>
+    <path d="M26 16 L26 48 M32 13 L32 51 M38 16 L38 48" fill="none"/>
+  </g>
+  <path d="M32 22 L43 32 L32 42 L21 32 Z" fill="none" stroke="#46586c" stroke-width="1" stroke-opacity=".3"/>
 </svg>
