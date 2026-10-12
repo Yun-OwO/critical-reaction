@@ -1,7 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54" fill="none" stroke="#9d4edd" stroke-width="9"/>
-  <polygon points="96,40 144,68 144,124 96,152 48,124 48,68" fill="none" stroke="#e0aaff" stroke-width="5" opacity=".85"/>
-  <path d="M96 40v112M48 96h96" fill="none" stroke="#c77dff" stroke-width="4" opacity=".8"/>
-  <circle cx="96" cy="96" r="18" fill="none" stroke="#ffffff" stroke-width="5"/>
-  <circle cx="96" cy="96" r="6" fill="#ffffff"/>
+  <!--
+    滴定巨像 · Boss（P1 纵切：实体化）
+    原版是三层 fill="none" 六边形 + 十字 —— 普通混合下会淡。
+    改造为「滴定管容器」：
+      ① 暗面管体（实心六边形，提供体积）
+      ② 中间调内管（玻璃管壁，暗示容器）
+      ③ 滴定液（下部液体，随酸碱形态改变的关键视觉）
+      ④ 旋塞与刻度（功能部件）
+  -->
+  <defs>
+    <linearGradient id="buretteBody" x1="22%" y1="6%" x2="78%" y2="94%">
+      <stop offset="0%" stop-color="#4a2a6b"/>
+      <stop offset="50%" stop-color="#2b1550"/>
+      <stop offset="100%" stop-color="#150a2c"/>
+    </linearGradient>
+    <linearGradient id="titrant" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#c77dff" stop-opacity=".85"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity=".95"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ① 暗面管体 -->
+  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54"
+           fill="url(#buretteBody)"
+           stroke="#9d4edd" stroke-width="8" stroke-linejoin="round"/>
+  <!-- ② 中间调内管（玻璃管壁） -->
+  <polygon points="96,40 144,68 144,124 96,152 48,124 48,68"
+           fill="#1e0f3a" fill-opacity=".9"
+           stroke="#c77dff" stroke-width="2.4" stroke-opacity=".65" stroke-linejoin="round"/>
+
+  <!-- ③ 滴定液：下半部，液面是清晰的水平线（滴定的读数线） -->
+  <path d="M48 124 L96 152 L144 124 L144 116 L96 144 L48 116 Z" fill="url(#titrant)"/>
+  <path d="M48 116 L96 144 L144 116" fill="none" stroke="#e0aaff"
+        stroke-width="3" stroke-opacity=".85" stroke-linejoin="round"/>
+
+  <!-- ④ 旋塞与刻度：功能部件，让"这是仪器"成立 -->
+  <g stroke="#e0aaff" stroke-opacity=".7" stroke-linecap="round">
+    <path d="M60 84 L84 84" stroke-width="2.4"/>
+    <path d="M60 96 L84 96" stroke-width="2.4"/>
+    <path d="M108 96 L132 96" stroke-width="2.4"/>
+    <path d="M108 108 L132 108" stroke-width="2.4"/>
+  </g>
+  <rect x="88" y="60" width="16" height="8" rx="2" fill="#e0aaff" fill-opacity=".85"/>
+  <!-- 管口辉光 -->
+  <circle cx="96" cy="96" r="11" fill="#ffffff" fill-opacity=".8"/>
 </svg>

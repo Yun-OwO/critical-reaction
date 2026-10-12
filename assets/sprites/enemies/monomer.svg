@@ -1,6 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <polygon points="48,10 82,30 82,66 48,86 14,66 14,30" fill="none" stroke="#c084fc" stroke-width="4.5"/>
-  <polygon points="48,22 70,36 70,60 48,74 26,60 26,36" fill="none" stroke="#e9d5ff" stroke-width="2.5" opacity=".7"/>
-  <circle cx="48" cy="48" r="9" fill="none" stroke="#ffffff" stroke-width="3"/>
-  <circle cx="48" cy="48" r="4" fill="#ffffff" opacity=".8"/>
+  <!--
+    单体 · monomer（P1 纵切：补体积）
+    保留"开放反应位 + 三条未闭合链臂"的结构（草案方向正确），
+    但原版几乎全是亮描边：像素实测中间调仅 4.1%，普通混合下会淡。
+    补三层：暗面基盘 → 中间调链臂与反应腔 → 高光只留受光面。
+  -->
+  <defs>
+    <radialGradient id="monoCore" cx="44%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#4a2a6b"/>
+      <stop offset="55%" stop-color="#2b1550"/>
+      <stop offset="100%" stop-color="#150a2c"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 暗面基盘：承载三条链臂的底盘 -->
+  <ellipse cx="48" cy="72" rx="34" ry="12" fill="#160a28" fill-opacity=".85"/>
+
+  <!-- 中间调链臂：三条未闭合的实体臂（不再是细线） -->
+  <g fill="#2b1550" stroke="#c084fc" stroke-width="3.4" stroke-linecap="round">
+    <path d="M34 22 A28 28 0 0 1 78 34 L72 40 A22 22 0 0 0 38 30 Z"/>
+    <path d="M82 58 A28 28 0 0 1 46 82 L42 74 A22 22 0 0 0 74 60 Z"/>
+    <path d="M28 74 A26 26 0 0 1 20 46 L28 43 A20 20 0 0 0 34 66 Z"/>
+  </g>
+
+  <!-- 悬空接口：三个实心接头（等东西接进来） -->
+  <g fill="#1e0a3a" stroke="#f3e8ff" stroke-width="2.6">
+    <circle cx="80" cy="36" r="6.5"/>
+    <circle cx="44" cy="84" r="6"/>
+    <circle cx="19" cy="46" r="5.5"/>
+  </g>
+
+  <!-- 中间调反应腔：开放的六边容器（实心，不是描边） -->
+  <polygon points="48,34 62,41 62,55 48,62 34,55 34,41"
+           fill="url(#monoCore)"
+           stroke="#f3e8ff" stroke-width="3.2" stroke-linejoin="round"/>
+  <!-- 腔内衬 -->
+  <polygon points="48,40 57,44 57,52 48,56 39,52 39,44"
+           fill="#1e0a3a" fill-opacity=".8" stroke="#7c4bb8" stroke-width="1.4" stroke-opacity=".7" stroke-linejoin="round"/>
+  <!-- 高光：左上的受光面 -->
+  <path d="M40 44 L48 40 L52 43" fill="none" stroke="#e9d5ff"
+        stroke-width="2.4" stroke-opacity=".7" stroke-linecap="round"/>
+  <!-- 等待中的空腔（虚线，读作"还没接上"） -->
+  <circle cx="48" cy="48" r="5" fill="none" stroke="#ffffff"
+          stroke-width="1.8" stroke-opacity=".6" stroke-dasharray="3 3"/>
 </svg>

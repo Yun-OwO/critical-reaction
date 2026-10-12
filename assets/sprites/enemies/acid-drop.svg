@@ -1,4 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <path d="M48 8 C 66 34, 84 52, 84 62 A 36 36 0 1 1 12 62 C 12 52, 30 34, 48 8 Z" fill="none" stroke="#5cffb1" stroke-width="6"/>
-  <path d="M48 30 C 58 44, 68 54, 68 62 A 20 20 0 1 1 28 62 C 28 54, 38 44, 48 30 Z" fill="none" stroke="#d0ffe8" stroke-width="3.5" opacity=".75"/>
+  <!--
+    酸液滴 · acid（P1 纵切：实体化）
+    原版是两条 fill="none" 的描边水滴 —— 普通混合下会淡到几乎看不见。
+    保留原有曲线造型（它本来就是合格的液滴轮廓），补三层：
+      ① 暗面填充（液体内部的深色，提供体积）
+      ② 中间调内层（液体的受光面）
+      ③ 高光与泡沫点（小面积亮点，读作"腐蚀性液体"）
+  -->
+  <defs>
+    <radialGradient id="acidBody" cx="42%" cy="34%" r="62%">
+      <stop offset="0%" stop-color="#1f5a48"/>
+      <stop offset="55%" stop-color="#123a2e"/>
+      <stop offset="100%" stop-color="#08201a"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ① 暗面底：沿用原水滴轮廓，改为实心 -->
+  <path d="M48 8 C 66 34, 84 52, 84 62 A 36 36 0 1 1 12 62 C 12 52, 30 34, 48 8 Z"
+        fill="url(#acidBody)"
+        stroke="#5cffb1" stroke-width="5" stroke-linejoin="round"/>
+  <!-- ② 中间调内层：液体受光面 -->
+  <path d="M48 30 C 58 44, 68 54, 68 62 A 20 20 0 1 1 28 62 C 28 54, 38 44, 48 30 Z"
+        fill="#1b6b52" fill-opacity=".7"
+        stroke="#a7f3d0" stroke-width="2.4" stroke-opacity=".7"/>
+  <!-- ③ 高光：左上的受光斑（液体反光）+ 两个腐蚀泡沫点 -->
+  <ellipse cx="38" cy="66" rx="9" ry="6" fill="#d0ffe8" fill-opacity=".5" transform="rotate(-18 38 66)"/>
+  <circle cx="60" cy="52" r="3" fill="#e8fff4" fill-opacity=".75"/>
+  <circle cx="52" cy="74" r="2.2" fill="#e8fff4" fill-opacity=".55"/>
+  <!-- 滴落的牵连液丝（暗示它正在滴落） -->
+  <path d="M48 88 C 50 94, 46 96, 47 99" fill="none" stroke="#5cffb1"
+        stroke-width="2.4" stroke-opacity=".6" stroke-linecap="round"/>
 </svg>

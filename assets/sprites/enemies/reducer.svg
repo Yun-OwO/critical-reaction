@@ -1,5 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <polygon points="48,6 90,48 48,90 6,48" fill="none" stroke="#67e8f9" stroke-width="6"/>
-  <polygon points="48,24 72,48 48,72 24,48" fill="none" stroke="#d9fbff" stroke-width="3.5" opacity=".8"/>
-  <circle cx="48" cy="48" r="7" fill="none" stroke="#ffffff" stroke-width="3.5"/>
+  <!--
+    还原剂 · reducer（P1 纵切：补体积）
+    保留"接收叉 + 电子落入核心"的结构（草案的方向是对的），
+    但原版几乎全是亮描边：像素实测中间调仅 9.8%，普通混合下会淡。
+    补三层：暗面底盘 → 中间调核心 → 高光只留受光面。
+  -->
+  <defs>
+    <radialGradient id="redCore" cx="44%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#2d5a6b"/>
+      <stop offset="55%" stop-color="#173a4a"/>
+      <stop offset="100%" stop-color="#0a1e28"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 暗面底盘：接收叉的基座（提供体积与投影承接） -->
+  <path d="M14 40 L34 56 L62 56 L82 40 L82 48 L64 62 L32 62 L14 48 Z"
+        fill="#0d2530" fill-opacity=".9"/>
+  <!-- 接收叉臂（中间调实体，不再是细线） -->
+  <g fill="#16394a" stroke="#67e8f9" stroke-width="2.4" stroke-linejoin="round">
+    <path d="M16 38 L34 54 L34 46 L20 36 Z"/>
+    <path d="M80 38 L62 54 L62 46 L76 36 Z"/>
+  </g>
+
+  <!-- 被捕获的电子：三枚实心颗粒（沿弧线落入） -->
+  <g fill="#a5f3fc">
+    <circle cx="27" cy="18" r="4"/>
+    <circle cx="48" cy="13" r="3.4"/>
+    <circle cx="69" cy="18" r="4"/>
+  </g>
+  <g fill="none" stroke="#67e8f9" stroke-width="2.2" stroke-opacity=".6" stroke-linecap="round">
+    <path d="M26 20 A26 26 0 0 0 42 44"/>
+    <path d="M48 15 A34 34 0 0 0 48 44"/>
+    <path d="M70 20 A26 26 0 0 1 54 44"/>
+  </g>
+
+  <!-- 中间调核心：竖椭圆实体 -->
+  <ellipse cx="48" cy="62" rx="22" ry="26" fill="url(#redCore)"
+           stroke="#a5f3fc" stroke-width="3.6"/>
+  <!-- 核心内衬 -->
+  <ellipse cx="48" cy="62" rx="13" ry="17" fill="#0f2c3a" fill-opacity=".85"
+           stroke="#3d8fa8" stroke-width="1.6" stroke-opacity=".7"/>
+  <!-- 高光：右上的受光面（小面积） -->
+  <path d="M56 52 A14 16 0 0 1 62 66" fill="none" stroke="#d8f6ff"
+        stroke-width="3" stroke-opacity=".7" stroke-linecap="round"/>
+  <circle cx="48" cy="62" r="5.5" fill="#ffffff"/>
+
+  <!-- 尾迹：向下三道（把能量往下带） -->
+  <g stroke="#2a5a6b" stroke-linecap="round" fill="none">
+    <path d="M34 90 L32 97" stroke-width="3"/>
+    <path d="M48 92 L48 100" stroke-width="2.4"/>
+    <path d="M62 90 L64 97" stroke-width="3"/>
+  </g>
 </svg>

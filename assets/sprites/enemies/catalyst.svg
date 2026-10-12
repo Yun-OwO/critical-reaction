@@ -1,6 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <path d="M48,8 L80,28 L80,58 Q80,78 48,88 Q16,78 16,58 L16,28 Z" fill="none" stroke="#fbbf24" stroke-width="5"/>
-  <path d="M48,20 L68,34 L68,56 Q68,70 48,78 Q28,70 28,56 L28,34 Z" fill="none" stroke="#fde68a" stroke-width="2.5" opacity=".6"/>
-  <circle cx="48" cy="48" r="7" fill="none" stroke="#ffffff" stroke-width="3"/>
-  <circle cx="48" cy="48" r="3" fill="#ffffff" opacity=".9"/>
+  <!--
+    催化剂（catalyst）—— 治疗/增益单位
+    改造前：盾形轮廓 + 居中双圆。
+    现在：表面吸附的催化床 —— 多孔的载体表面吸附着反应物，
+    上方有反应物被"吸住"的轨迹，下方有产物脱附，读作"它让反应更快"。
+  -->
+  <defs>
+    <radialGradient id="ctGlow" cx="48%" cy="56%" r="54%">
+      <stop offset="0%" stop-color="#fef9c3" stop-opacity=".9"/>
+      <stop offset="100%" stop-color="#a16207" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 多孔载体表面：底缘带凹槽（不是光滑弧） -->
+  <path d="M20 30 L20 56 Q24 74 48 80 Q72 74 76 56 L76 30 Z"
+        fill="#2a2008" fill-opacity=".82"
+        stroke="#fbbf24" stroke-width="5.5" stroke-linejoin="round"/>
+  <!-- 孔隙：大小不一的凹点，暗示"多孔催化床" -->
+  <g fill="#0f0d04" fill-opacity=".85" stroke="#fde68a" stroke-width="1.8">
+    <circle cx="34" cy="48" r="4"/>
+    <circle cx="52" cy="44" r="5.5"/>
+    <circle cx="64" cy="54" r="3.5"/>
+    <circle cx="42" cy="62" r="3"/>
+    <circle cx="58" cy="66" r="4.5"/>
+  </g>
+
+  <!-- 吸附轨迹：上方三条弧线，末端扎进孔隙 -->
+  <g fill="none" stroke="#fde68a" stroke-linecap="round">
+    <path d="M30 10 A26 26 0 0 0 50 44" stroke-width="2.6" stroke-opacity=".75"/>
+    <path d="M48 4 A30 30 0 0 0 54 42" stroke-width="2" stroke-opacity=".55"/>
+    <path d="M66 12 A24 24 0 0 0 62 50" stroke-width="2.2" stroke-opacity=".65"/>
+  </g>
+  <circle cx="29" cy="9" r="3.2" fill="#fef9c3" fill-opacity=".85"/>
+  <circle cx="49" cy="3" r="2.6" fill="#fef9c3" fill-opacity=".6"/>
+  <circle cx="67" cy="11" r="2.8" fill="#fef9c3" fill-opacity=".7"/>
+
+  <!-- 催化活性位：偏心、不居中 -->
+  <ellipse cx="48" cy="56" rx="16" ry="19" fill="url(#ctGlow)"/>
+  <ellipse cx="48" cy="56" rx="16" ry="19" fill="none"
+           stroke="#fef9c3" stroke-width="3" stroke-opacity=".85"/>
+  <path d="M42 50 L50 47 L54 54" fill="none" stroke="#ffffff"
+        stroke-width="2.2" stroke-opacity=".8" stroke-linecap="round"/>
+
+  <!-- 产物脱附：向下三道，读作"反应完成后产物离开" -->
+  <g stroke="#fbbf24" stroke-linecap="round" fill="none" stroke-opacity=".45">
+    <path d="M32 84 L28 94" stroke-width="2.4"/>
+    <path d="M48 87 L48 97" stroke-width="2"/>
+    <path d="M64 84 L68 94" stroke-width="2.4"/>
+  </g>
 </svg>

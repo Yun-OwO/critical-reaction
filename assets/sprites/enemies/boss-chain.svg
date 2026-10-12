@@ -1,9 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54" fill="none" stroke="#fde047" stroke-width="9"/>
-  <path d="M48 96 L76 76 L104 116 L132 88 L148 100" fill="none" stroke="#fef08a" stroke-width="5" opacity=".9"/>
-  <circle cx="76" cy="76" r="8" fill="none" stroke="#ffffff" stroke-width="4"/>
-  <circle cx="104" cy="116" r="8" fill="none" stroke="#ffffff" stroke-width="4"/>
-  <circle cx="132" cy="88" r="8" fill="none" stroke="#ffffff" stroke-width="4"/>
-  <circle cx="96" cy="96" r="16" fill="none" stroke="#ffffff" stroke-width="5"/>
-  <circle cx="96" cy="96" r="6" fill="#ffffff"/>
+  <!--
+    链式反应母体 · Boss（P1 纵切：实体化）
+    原版是 fill="none" 六边形 + 折线 + 空心圆 —— 普通混合下会淡。
+    改造为「裂变腔体」：
+      ① 暗面腔体（实心六边形，提供体积）
+      ② 中间调内衬（反应腔壁）
+      ③ 链节：三个实心节点串成折线（链式反应的视觉主体）
+      ④ 核心裂变点（高亮，阶段转换的视觉锚点）
+  -->
+  <defs>
+    <linearGradient id="cavityBody" x1="20%" y1="8%" x2="80%" y2="92%">
+      <stop offset="0%" stop-color="#6b5a1a"/>
+      <stop offset="50%" stop-color="#43380f"/>
+      <stop offset="100%" stop-color="#241d08"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ① 暗面腔体 -->
+  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54"
+           fill="url(#cavityBody)"
+           stroke="#fde047" stroke-width="8" stroke-linejoin="round"/>
+  <!-- ② 中间调内衬 -->
+  <polygon points="96,36 150,66 150,126 96,156 42,126 42,66"
+           fill="#3a300b" fill-opacity=".88"
+           stroke="#fde047" stroke-width="2" stroke-opacity=".5" stroke-linejoin="round"/>
+
+  <!-- ③ 链节：三个实心节点串成折线（链式反应的传播路径） -->
+  <path d="M48 96 L76 76 L104 116 L132 88 L148 100" fill="none"
+        stroke="#fef08a" stroke-width="6" stroke-opacity=".9" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#3a300b" stroke="#fef08a" stroke-width="3.5">
+    <circle cx="76" cy="76" r="11"/>
+    <circle cx="104" cy="116" r="11"/>
+    <circle cx="132" cy="88" r="11"/>
+  </g>
+  <!-- 链节高光（左上受光） -->
+  <g fill="#fffbe6" fill-opacity=".7">
+    <circle cx="73" cy="73" r="3.4"/>
+    <circle cx="101" cy="113" r="3.4"/>
+    <circle cx="129" cy="85" r="3.4"/>
+  </g>
+
+  <!-- ④ 核心裂变点：阶段转换的视觉锚点 -->
+  <circle cx="96" cy="96" r="20" fill="#5c4a0e" fill-opacity=".9" stroke="#ffffff" stroke-width="4"/>
+  <circle cx="96" cy="96" r="9" fill="#ffffff" fill-opacity=".9"/>
 </svg>

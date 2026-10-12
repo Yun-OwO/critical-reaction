@@ -1,9 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <circle cx="48" cy="48" r="36" fill="none" stroke="#38bdf8" stroke-width="4"/>
-  <circle cx="48" cy="48" r="24" fill="none" stroke="#7dd3fc" stroke-width="2.5" opacity=".7"/>
-  <line x1="48" y1="8" x2="48" y2="28" stroke="#38bdf8" stroke-width="3.5"/>
-  <line x1="48" y1="68" x2="48" y2="88" stroke="#38bdf8" stroke-width="3.5"/>
-  <line x1="8" y1="48" x2="28" y2="48" stroke="#38bdf8" stroke-width="3.5"/>
-  <line x1="68" y1="48" x2="88" y2="48" stroke="#38bdf8" stroke-width="3.5"/>
-  <circle cx="48" cy="48" r="6" fill="#ffffff" opacity=".9"/>
+  <!--
+    光子 · photom（P1 纵切：补体积）
+    保留"聚焦透镜 + 单向光束"的结构（草案方向正确），
+    但原版几乎全是亮描边：像素实测中间调仅 2.6%，普通混合下会淡。
+    补三层：暗面镜座 → 中间调镜体 → 高光只留受光面。
+  -->
+  <defs>
+    <linearGradient id="lensBody" x1="30%" y1="14%" x2="70%" y2="86%">
+      <stop offset="0%" stop-color="#3d6a8a"/>
+      <stop offset="50%" stop-color="#1e4560"/>
+      <stop offset="100%" stop-color="#0d2436"/>
+    </linearGradient>
+    <linearGradient id="beamGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#e0f2fe" stop-opacity=".9"/>
+      <stop offset="55%" stop-color="#38bdf8" stop-opacity=".5"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 暗面镜座：承光的底座（提供体积） -->
+  <path d="M18 24 A34 34 0 0 0 40 74 L34 78 A28 28 0 0 1 12 26 Z"
+        fill="#0d2436" fill-opacity=".9"/>
+  <!-- 中间调聚光碗：实体弧（不再是细线） -->
+  <path d="M18 24 A34 34 0 0 0 40 74 L34 80 A28 28 0 0 1 12 26 Z"
+        fill="#16354a" stroke="#38bdf8" stroke-width="3.2" stroke-linecap="round"/>
+
+  <!-- 中间调镜体：偏心椭圆（镜片是斜的） -->
+  <ellipse cx="38" cy="48" rx="17" ry="21" fill="url(#lensBody)"
+           stroke="#e0f2fe" stroke-width="3"/>
+  <!-- 镜面反光：左上的高光斑（小面积） -->
+  <ellipse cx="33" cy="41" rx="6" ry="8" fill="#ffffff" fill-opacity=".55"/>
+  <ellipse cx="43" cy="56" rx="3" ry="5" fill="#bae6fd" fill-opacity=".35"/>
+
+  <!-- 出射光束：向右收束，带焦点环 -->
+  <path d="M58 44 L94 42 L94 54 L58 52 Z" fill="url(#beamGrad)"/>
+  <path d="M70 47 L92 46 L92 50 L70 49 Z" fill="#f0f9ff" fill-opacity=".5"/>
+  <ellipse cx="72" cy="48" rx="4" ry="7" fill="none"
+           stroke="#bae6fd" stroke-width="1.8" stroke-opacity=".8"/>
+
+  <!-- 入射光：三条不等长，暗示它从别处收光（中间调） -->
+  <g stroke="#2a6a8a" stroke-linecap="round" fill="none">
+    <path d="M4 22 L22 34" stroke-width="4"/>
+    <path d="M2 40 L20 44" stroke-width="3"/>
+    <path d="M8 58 L24 56" stroke-width="3.4"/>
+  </g>
+
+  <!-- 准星刻度：三条短横，读作"瞄准" -->
+  <g stroke="#7dd3fc" stroke-width="1.8" stroke-opacity=".75" stroke-linecap="round">
+    <path d="M38 22 L38 28"/>
+    <path d="M24 48 L18 48"/>
+    <path d="M38 74 L38 68"/>
+  </g>
 </svg>

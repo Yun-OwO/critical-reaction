@@ -1,7 +1,58 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="36" fill="none" stroke="#67e8f9" stroke-width="3.5" opacity=".25"/>
-  <circle cx="64" cy="64" r="28" fill="none" stroke="#e0faff" stroke-width="5"/>
-  <circle cx="64" cy="64" r="14" fill="none" stroke="#67e8f9" stroke-width="3.5"/>
-  <path d="M64 38v52M38 64h52" fill="none" stroke="#67e8f9" stroke-width="2.5" opacity=".85"/>
-  <circle cx="64" cy="64" r="5" fill="#ffffff"/>
+  <!--
+    氢原子核心 · 玩家（P1 纵切：实体化改造）
+
+    改造依据（计划 §4.3）：像素实测显示原版暗面+中间调只占 3.7%，
+    亮面占 17.4% —— 几乎是纯线条。在 ADD 混合下"线条被加白"看起来还行，
+    一旦改成普通混合（实体感的前提）就会淡到几乎看不见。
+    所以实体化的关键是**补足暗面与中间调**，不是加更多亮线。
+
+    三层结构：
+      ① 暗面底（polygon 深色填充）—— 提供体积与投影承接
+      ② 中间调（内层多边形，中等明度）—— 让平面有"面"而不是"框"
+      ③ 亮面（受光高光 + 描边）—— 只占小面积，指示光源方向
+
+    光源约定：右上方（与电子拖尾方向一致，读作"朝右前进"）。
+  -->
+  <defs>
+    <linearGradient id="bodyShade" x1="18%" y1="10%" x2="82%" y2="90%">
+      <stop offset="0%" stop-color="#2b4a5c"/>
+      <stop offset="45%" stop-color="#16293a"/>
+      <stop offset="100%" stop-color="#0a1622"/>
+    </linearGradient>
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".95"/>
+      <stop offset="40%" stop-color="#a5f3fc" stop-opacity=".6"/>
+      <stop offset="100%" stop-color="#0e7490" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 电子云：非完整弧线团，暗示绕行粒子（暗面，不抢主体） -->
+  <g fill="none" stroke="#2a4a5c" stroke-linecap="round">
+    <path d="M26 42 A40 40 0 1 1 32 94" stroke-width="9" stroke-opacity=".75"/>
+    <path d="M29 51 A32 32 0 1 1 40 88" stroke-width="4" stroke-opacity=".55"/>
+  </g>
+  <!-- 电子拖尾：右侧三道递减，指示朝向与速度（中等明度） -->
+  <g fill="none" stroke="#4a7a90" stroke-linecap="round">
+    <path d="M88 40 A28 28 0 0 1 93 62" stroke-width="7" stroke-opacity=".8"/>
+    <path d="M95 47 A22 22 0 0 1 97 62" stroke-width="5" stroke-opacity=".55"/>
+    <path d="M100 54 A16 16 0 0 1 101 62" stroke-width="3" stroke-opacity=".35"/>
+  </g>
+
+  <!-- ① 暗面底：带棱面的多边形（不是圆），左下最暗 -->
+  <polygon points="64,32 88,48 88,80 64,94 40,80 40,48"
+           fill="url(#bodyShade)"
+           stroke="#5f8fa6" stroke-width="4" stroke-linejoin="round"/>
+  <!-- ② 中间调：内层多边形，让平面有"面" -->
+  <polygon points="64,42 80,52 80,76 64,86 48,76 48,52"
+           fill="#1d3a4c" fill-opacity=".92"
+           stroke="#4a7a90" stroke-width="1.6" stroke-opacity=".7" stroke-linejoin="round"/>
+  <!-- ③ 亮面：右上的受光面（小面积高光，指示光源） -->
+  <path d="M64 42 L80 52 L64 60 Z" fill="#6ba8c4" fill-opacity=".55"/>
+  <path d="M52 54 L60 45 L70 47" fill="none" stroke="#cfeffa"
+        stroke-width="2.6" stroke-opacity=".75" stroke-linecap="round"/>
+
+  <!-- 活性核心：辉光 + 亮点（发光交给独立光晕层，这里只做内核） -->
+  <circle cx="64" cy="64" r="17" fill="url(#coreGlow)"/>
+  <circle cx="64" cy="64" r="6" fill="#ffffff"/>
 </svg>

@@ -835,6 +835,12 @@ export class GameScene extends Phaser.Scene {
       .setAngle(-12)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.player = this.add.image(this.diamondCx, this.diamondCy, 'hydrogen-core').setDisplaySize(92, 92);
+    // 主体用**普通混合**而不是 ADD（计划 §4.3：实体感是第一支柱）。
+    // ADD 会让整张贴图变成纯发光线条——暗面、轮廓、内部结构全部被加白吃掉，
+    // 玩家看起来是个会飞的荧光符号，而不是一个有体积的核心。
+    // 发光交给独立光晕层（playerGlow/playerGlowOuter/playerInnerGlow + Bloom），
+    // 那些层保持 ADD：发光是辅助，不是主体本身。
+    this.player.setBlendMode(Phaser.BlendModes.NORMAL);
     const shadowAlpha = getVisualProfile().shadowAlpha;
     this.playerShadowOuter = this.add.ellipse(this.player.x, this.player.y + 40, 180, 54, 0x003355, shadowAlpha * 0.25)
       .setBlendMode(Phaser.BlendModes.ADD)
@@ -845,7 +851,6 @@ export class GameScene extends Phaser.Scene {
     this.playerShadowInner = this.add.ellipse(this.player.x, this.player.y + 36, 96, 30, 0x001133, shadowAlpha * 0.7)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(-1);
-    this.player.setBlendMode(Phaser.BlendModes.ADD);
     // 真实 Glow 滤镜（WebGL + 中高质量档）：在既有硬边 ADD 光晕之上再叠一层柔和外发光
     this.playerFilterGlow = this.attachGlow(this.player);
     this.playerGlowOuter = this.add.circle(this.player.x, this.player.y, 80, this.orbitColor, 0.06)
@@ -1823,7 +1828,9 @@ export class GameScene extends Phaser.Scene {
     const enemy = this.add.image(pos.x, pos.y, key)
       .setDisplaySize(size * eliteScale, size * eliteScale)
       .setAlpha(0)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      // 主体普通混合（计划 §4.3）：敌人与玩家同规则，都要有体积。
+      // 发光保留在 aura/glow 两层上，那些层继续 ADD。
+      .setBlendMode(Phaser.BlendModes.NORMAL);
     const glowColor = isElite
       ? 0xffb020
       : kind === 'chaser' ? 0xff5c7a : kind === 'ranged' ? 0xff8a4c : kind === 'tank' ? 0x5cffb1 : kind === 'healer' ? 0x67e8f9 : 0xfde047;
@@ -6783,7 +6790,9 @@ export class GameScene extends Phaser.Scene {
     const view = this.add.image(pos.x, pos.y, bossConfig.sprite)
       .setDisplaySize(220 * bossScale, 220 * bossScale)
       .setTint(bossConfig.color)
-      .setBlendMode(Phaser.BlendModes.ADD);
+      // Boss 主体同样改普通混合（计划 §4.3）：tint 在 ADD 下会被加白冲到发灰，
+      // 换成普通混合后才能读出配色与体积。发光由下面的 bossGlow + Glow 滤镜负责。
+      .setBlendMode(Phaser.BlendModes.NORMAL);
     // Boss 是本局最强的视觉焦点：挂真实 Glow 滤镜（WebGL + 中高质量档）
     this.attachGlowFor(view, bossConfig.color, 6);
     const bossGlow = this.add.circle(pos.x, pos.y, 180 * bossScale, bossConfig.color, 0.1)

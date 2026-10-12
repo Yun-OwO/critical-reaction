@@ -1,9 +1,50 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54" fill="none" stroke="#67e8f9" stroke-width="9"/>
-  <path d="M60 60 L132 84 M60 84 L132 60 M60 108 L132 132 M60 132 L132 108" fill="none" stroke="#a5f3fc" stroke-width="4" opacity=".85"/>
-  <circle cx="96" cy="96" r="18" fill="none" stroke="#ffffff" stroke-width="5"/>
-  <circle cx="96" cy="52" r="7" fill="#67e8f9"/>
-  <circle cx="60" cy="140" r="7" fill="#67e8f9"/>
-  <circle cx="132" cy="140" r="7" fill="#67e8f9"/>
-  <circle cx="96" cy="96" r="6" fill="#ffffff"/>
+  <!--
+    电解领主 · Boss（P1 纵切：实体化）
+    原版是 fill="none" 的六边形 + 交叉线 —— 普通混合下会淡。
+    改造为「电解槽体」：
+      ① 暗面槽体（实心六边形，提供体积）
+      ② 中间调内壁（槽体内衬，暗示容器）
+      ③ 双极电极（上下各一，电解的核心部件）
+      ④ 电解液与气泡（受光面 + 上浮气泡，读作"正在电解"）
+  -->
+  <defs>
+    <linearGradient id="electrolyte" x1="20%" y1="8%" x2="80%" y2="92%">
+      <stop offset="0%" stop-color="#2a5f78"/>
+      <stop offset="50%" stop-color="#173d52"/>
+      <stop offset="100%" stop-color="#0a2233"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ① 暗面槽体 -->
+  <polygon points="96,12 168,54 168,138 96,180 24,138 24,54"
+           fill="url(#electrolyte)"
+           stroke="#67e8f9" stroke-width="8" stroke-linejoin="round"/>
+  <!-- ② 中间调内壁 -->
+  <polygon points="96,32 150,64 150,128 96,160 42,128 42,64"
+           fill="#0f3448" fill-opacity=".85"
+           stroke="#3d7f9c" stroke-width="2" stroke-opacity=".6" stroke-linejoin="round"/>
+
+  <!-- ③ 双极电极：上（阳极）下（阴极），电解的核心部件 -->
+  <g stroke="#e0faff" stroke-linecap="round">
+    <path d="M96 34 L96 62" stroke-width="7"/>
+    <path d="M96 130 L96 158" stroke-width="7"/>
+  </g>
+  <circle cx="96" cy="52" r="9" fill="#a5f3fc"/>
+  <circle cx="96" cy="140" r="9" fill="#7dd3fc"/>
+
+  <!-- 电解液面的交叉弧线（保留原"电解"语汇，但变成液体表面） -->
+  <g fill="none" stroke="#67e8f9" stroke-opacity=".55" stroke-linecap="round">
+    <path d="M60 60 Q96 76 132 60" stroke-width="4"/>
+    <path d="M60 132 Q96 116 132 132" stroke-width="4"/>
+  </g>
+  <!-- ④ 上浮气泡：大小不一，读作"反应进行中" -->
+  <g fill="#d8f6ff" fill-opacity=".55">
+    <circle cx="72" cy="96" r="4"/>
+    <circle cx="104" cy="82" r="3"/>
+    <circle cx="118" cy="104" r="5"/>
+    <circle cx="84" cy="118" r="2.5"/>
+  </g>
+  <!-- 中心电极辉光 -->
+  <circle cx="96" cy="96" r="12" fill="#ffffff" fill-opacity=".85"/>
 </svg>

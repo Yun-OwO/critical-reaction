@@ -1,5 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112">
-  <rect x="14" y="14" width="84" height="84" rx="12" fill="none" stroke="#5cffb1" stroke-width="7"/>
-  <rect x="25" y="25" width="62" height="62" rx="8" fill="none" stroke="#c4ffe3" stroke-width="3" opacity=".8"/>
-  <path d="M28 58h56M56 28v56" fill="none" stroke="#b8ffe0" stroke-width="4.5" opacity=".85"/>
+  <!--
+    聚合物 · polymer（P1 纵切：补体积）
+    保留"高分子链节 + 交联点"的结构（草案方向正确），
+    但原版几乎全是亮描边：像素实测中间调仅 8%，普通混合下会淡。
+    补三层：暗面底盘 → 中间调链节与链圈 → 高光只留受光面。
+  -->
+  <defs>
+    <linearGradient id="polyBody" x1="20%" y1="10%" x2="80%" y2="90%">
+      <stop offset="0%" stop-color="#2f6b4a"/>
+      <stop offset="50%" stop-color="#1a4530"/>
+      <stop offset="100%" stop-color="#0d2418"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 暗面底盘：厚重基座（tank 的重量感来源） -->
+  <ellipse cx="56" cy="84" rx="40" ry="14" fill="#0d2418" fill-opacity=".9"/>
+
+  <!-- 中间调链节环：七个链节沿环排列（实心，不再是描边） -->
+  <path d="M56 16 L86 30 L96 62 L74 90 L40 94 L20 70 L24 38 Z"
+        fill="url(#polyBody)"
+        stroke="#5cffb1" stroke-width="6" stroke-linejoin="round"/>
+  <!-- 内层链节（交替双键的细层） -->
+  <path d="M60 26 L82 36 L88 58 L66 80 L42 84 L28 66 L32 44 Z"
+        fill="#153f2a" fill-opacity=".85"
+        stroke="#a7f3d0" stroke-width="2" stroke-opacity=".55" stroke-linejoin="round"/>
+
+  <!-- 链圈缠绕：两条环带穿过主体（中间调） -->
+  <path d="M30 44 A32 32 0 0 1 84 40" fill="none"
+        stroke="#1d5c3d" stroke-width="7" stroke-opacity=".85" stroke-linecap="round"/>
+  <path d="M80 66 A30 30 0 0 1 32 74" fill="none"
+        stroke="#1d5c3d" stroke-width="7" stroke-opacity=".85" stroke-linecap="round"/>
+
+  <!-- 交联点：三枚实心环（关节） -->
+  <g fill="#0f3a26" stroke="#eaffd8" stroke-width="2.6">
+    <circle cx="56" cy="16" r="7"/>
+    <circle cx="74" cy="90" r="6"/>
+    <circle cx="24" cy="38" r="5.5"/>
+  </g>
+  <!-- 交联点高光（左上受光） -->
+  <g fill="#eaffd8" fill-opacity=".7">
+    <circle cx="54" cy="14" r="2.4"/>
+    <circle cx="72" cy="88" r="2"/>
+  </g>
+
+  <!-- 核心辉光：居中但被链遮挡一部分 -->
+  <circle cx="56" cy="56" r="26" fill="#a7f3d0" fill-opacity=".18"/>
+  <path d="M46 56 L56 46 L66 56 L56 66 Z" fill="#eaffd8" fill-opacity=".5"/>
 </svg>

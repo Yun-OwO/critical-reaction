@@ -1,5 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-  <circle cx="48" cy="48" r="36" fill="none" stroke="#ff8a4c" stroke-width="6"/>
-  <circle cx="48" cy="48" r="25" fill="none" stroke="#ffd2b8" stroke-width="3" opacity=".85"/>
-  <path d="M48 22v52M22 48h52" fill="none" stroke="#fff7ed" stroke-width="4.5" opacity=".9"/>
+  <!--
+    氧化剂（oxidizer）—— 远程敌人
+    改造前：同心圆 + 十字线（和玩家原版几乎一样，只有颜色不同）。
+    现在：O3 的臭氧分子结构 —— 三个氧原子折线排列 + 中心电荷三角，
+    双原子端点大小不同（分子不对称），底部喷口暗示它"发射"。
+  -->
+  <defs>
+    <radialGradient id="oxGlow" cx="50%" cy="42%" r="55%">
+      <stop offset="0%" stop-color="#fff7ed" stop-opacity=".92"/>
+      <stop offset="100%" stop-color="#c2410c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 臭氧折线骨架：O1-O2-O3，端点大小递减体现不对称 -->
+  <path d="M22 62 L48 34 L76 54" fill="none"
+        stroke="#ff8a4c" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 双键标记（共振结构的一支） -->
+  <path d="M30 58 L46 40 M38 64 L53 46" fill="none"
+        stroke="#ffd2b8" stroke-width="2.2" stroke-opacity=".8" stroke-linecap="round"/>
+
+  <!-- 三个氧原子：半径各不相同，破除"图标感" -->
+  <circle cx="22" cy="62" r="13" fill="#2a1508" fill-opacity=".8"
+          stroke="#ffd2b8" stroke-width="3.6"/>
+  <circle cx="48" cy="34" r="17" fill="#33190a" fill-opacity=".8"
+          stroke="#fff7ed" stroke-width="4.2"/>
+  <circle cx="76" cy="54" r="10" fill="#2a1508" fill-opacity=".8"
+          stroke="#ffd2b8" stroke-width="3"/>
+
+  <!-- 正电中心：向上凸起（臭氧带正电荷） -->
+  <circle cx="48" cy="34" r="17" fill="url(#oxGlow)"/>
+  <path d="M48 22 L52 28 L48 26 L44 28 Z" fill="#ffffff" fill-opacity=".9"/>
+
+  <!-- 发射口：三道递减喷流，暗示这是远程单位 -->
+  <g stroke="#ff8a4c" stroke-linecap="round" fill="none">
+    <path d="M70 70 L82 78" stroke-width="3" stroke-opacity=".7"/>
+    <path d="M66 76 L76 84" stroke-width="2.2" stroke-opacity=".5"/>
+    <path d="M74 62 L86 68" stroke-width="1.6" stroke-opacity=".35"/>
+  </g>
 </svg>
