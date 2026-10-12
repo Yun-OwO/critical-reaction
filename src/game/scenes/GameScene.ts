@@ -73,6 +73,7 @@ import { getVisualProfile } from '../visual/quality';
 import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
 import { computeFontScale, computeUiScale, currentViewportMetrics, isTouchDevice } from '../ui/uiScale';
+import { RunRng } from '../utils/RunRng';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
 import { FxPool, FX_TEX } from '../utils/Fx';
@@ -744,6 +745,10 @@ export class GameScene extends Phaser.Scene {
     // 面板内常驻关闭按钮：移动端无键盘，且面板可能盖满遮罩，空白处点击不可靠
     document.getElementById('status-close')?.addEventListener('click', () => this.toggleStatusPanel());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      // 离屏裁剪表必须清空：GameScene 每次启动都重新注册，
+      // 不清的话重启 N 次后这张表就是 N 倍悬挂引用，
+      // cullOffscreen 每帧遍历的全是已销毁对象（实测 28.8 万条）。
+      this.cullables.length = 0;
       window.removeEventListener('keydown', this.onStatusPanelKey);
       this.removeBoonKeyHandler();
       if (this.statusPanelOpen) {
@@ -813,7 +818,8 @@ export class GameScene extends Phaser.Scene {
       .setBlendMode(Phaser.BlendModes.SCREEN)
       .setDepth(-3);
     this.drawGrid();
-    this.runSeed = Phaser.Math.Between(1, 1073741823);
+    this.runSeed = this.rng.between(1, 1073741823);
+    this.rng.reseed(this.runSeed);
     this.createAtmosphere();
     this.add.ellipse(this.diamondCx, this.diamondCy, 206, 104)
       .setStrokeStyle(8, 0x06b6d4, 0.12)
@@ -989,7 +995,7 @@ export class GameScene extends Phaser.Scene {
         this.overloadWasActive = true;
         this.showFloatingText(this.player.x, this.player.y - 112, '过载！温度超限', '#FF8A4C');
         this.showFloatingText(this.player.x, this.player.y - 88, `每秒自损 ${BALANCE.overload.selfDamagePerSec} · 切还原态降温`, '#94A3B8');
-        this.playSfx('sfx-dd', 0.7);
+        this.playSfx('hit-heavy', 0.7);
       }
       this.overloadTickTimer += dt;
       if (overloadTick(this.overloadTickTimer - BALANCE.overload.graceSec)) {
@@ -1122,7 +1128,7 @@ export class GameScene extends Phaser.Scene {
         if (this.specialDenyHintTimer <= 0) {
           this.specialDenyHintTimer = 0.9;
           this.showFloatingText(this.player.x, this.player.y - 88, '特殊攻击需要自由电子', '#94A3B8');
-          this.playSfx('sfx-duong', 0.5); // 语义同 Chemic duong=失败/不足
+          this.playSfx('deny', 0.5); // 语义同 Chemic duong=失败/不足
           this.playTone(200, 0.05, 'sine', 0.03);
         }
       } else {
@@ -1268,6 +1274,15 @@ export class GameScene extends Phaser.Scene {
   private cullOffscreen(): void {
     if (this.cullables.length === 0) return;
     const view = this.cameras.main.worldView;
+    // 惰性清扫：销毁了的对象留在这里会被每帧遍历到（该对象 visible 状态
+    // 已无意义）。交换-弹出，O(n) 一趟，摊销开销极低。
+    for (let i = this.cullables.length - 1; i >= 0; i -= 1) {
+      const o = this.cullables[i].obj as unknown as { active?: boolean };
+      if (o && o.active === false) {
+        this.cullables[i] = this.cullables[this.cullables.length - 1];
+        this.cullables.pop();
+      }
+    }
     for (const c of this.cullables) {
       const obj = c.obj as unknown as { x: number; y: number; visible: boolean; setVisible(v: boolean): unknown };
       const pad = c.pad;
@@ -1380,6 +1395,13 @@ export class GameScene extends Phaser.Scene {
   private totalElapsed = 0;
   /** 本局地图种子：柏林噪声群系/地形/地物的生成源（每局随机） */
   private runSeed = 1;
+  /**
+   * 局内随机源（联机接缝 1）。战斗层所有随机都应走这里，
+   * 保证同一 runSeed 复现同一局（回放/联机/崩溃复现的前提）。
+   * createAtmosphere 等纯表现层的随机可以留在 Math.random——
+   * 它们不影响判定，不需要进回放。
+   */
+  private rng = new RunRng();
   /** 反应层数全局伤害倍率 */
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
@@ -1441,7 +1463,7 @@ export class GameScene extends Phaser.Scene {
         case 'damage': this.reactionMilestoneBonus += m.amount; break;
       }
       this.showFloatingText(this.player.x, this.player.y - 128, '⚗ 催化里程碑：' + m.label, '#5CFFB1');
-      this.playSfx('sfx-liang', 0.7);
+      this.playSfx('upgrade', 0.7);
     }
   }
   /** 新手引导（仅首次运行激活，完成/跳过后永久关闭） */
@@ -1553,8 +1575,8 @@ export class GameScene extends Phaser.Scene {
       .setDepth(-1);
     // Grid glow highlights at intersections
     for (let i = 0; i < 8; i += 1) {
-      const gx = Phaser.Math.Between(200, this.worldWidth - 200);
-      const gy = Phaser.Math.Between(200, this.worldHeight - 200);
+      const gx = this.rng.between(200, this.worldWidth - 200);
+      const gy = this.rng.between(200, this.worldHeight - 200);
       const glow = this.add.circle(gx, gy, 60, 0x06b6d4, 0.03)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(-1);
@@ -1562,7 +1584,7 @@ export class GameScene extends Phaser.Scene {
         targets: glow,
         alpha: { from: 0.015, to: 0.06 },
         scale: { from: 0.8, to: 1.6 },
-        duration: Phaser.Math.Between(2000, 4000),
+        duration: this.rng.between(2000, 4000),
         yoyo: true,
         repeat: -1,
         ease: 'Sine.inOut'
@@ -1799,7 +1821,7 @@ export class GameScene extends Phaser.Scene {
       targets: [enemy, aura],
       scale: { from: 0.94 * eliteScale, to: 1.06 * eliteScale },
       angle: { from: -6, to: 6 },
-      duration: 900 + Phaser.Math.Between(0, 300),
+      duration: 900 + this.rng.between(0, 300),
       yoyo: true,
       repeat: -1,
       ease: 'Sine.inOut',
@@ -1848,9 +1870,9 @@ export class GameScene extends Phaser.Scene {
       pushY: 0,
       orbit: createOrbit(hp, layers, BALANCE.combat.enemyHpPerElectron),
       enteredCombat: false,
-      orbitAngle: Math.random() * Math.PI * 2,
+      orbitAngle: this.rng.float() * Math.PI * 2,
       orbitArcs: [],
-      chargeTimer: 4 + Math.random() * 2,
+      chargeTimer: 4 + this.rng.float() * 2,
       chargeActive: false,
       chargeWindup: 0,
       chargeMark: null,
@@ -2064,14 +2086,14 @@ export class GameScene extends Phaser.Scene {
     const speedBonus = getLayerSpeedScale(room.layer) + (cfg.elite ? 14 : 0);
     const roster = buildComposition(cfg, cfg.count, Math.random, BALANCE.combat.equivalentSwapChance);
     for (const def of roster) {
-      let angle = Math.random() * Math.PI * 2;
-      let dist = 600 + Math.random() * 800;
+      let angle = this.rng.float() * Math.PI * 2;
+      let dist = 600 + this.rng.float() * 800;
       let x = this.diamondCx + Math.cos(angle) * dist;
       let y = this.diamondCy + Math.sin(angle) * dist * 0.5;
       // 最佳实践：禁止玩家 400px 内直接刷新，重掷至多 5 次
       for (let t = 0; t < 5 && Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 400; t += 1) {
-        angle = Math.random() * Math.PI * 2;
-        dist = 600 + Math.random() * 800;
+        angle = this.rng.float() * Math.PI * 2;
+        dist = 600 + this.rng.float() * 800;
         x = this.diamondCx + Math.cos(angle) * dist;
         y = this.diamondCy + Math.sin(angle) * dist * 0.5;
       }
@@ -2123,7 +2145,7 @@ export class GameScene extends Phaser.Scene {
     if (amount <= 0) return;
     gameState.coupons += amount;
     this.showFloatingText(this.player.x, this.player.y - 128, `${source} +${amount} 券`, '#67E8F9');
-    this.playSfx('sfx-ding', 0.55);
+    this.playSfx('coupon', 0.55);
   }
 
   /** 把 gameState 拍成事件/货架逻辑要的只读快照（两个纯函数层共用同一份口径）。 */
@@ -2150,7 +2172,7 @@ export class GameScene extends Phaser.Scene {
     // 自适应难度：通关越快 → 升温越多（快节奏推高压，慢节奏给缓冲）
     this.roomsCleared += 1;
     this.applyPacingHeat();
-    this.playSfx('sfx-ding', 0.9);
+    this.playSfx('pickup', 0.9);
     emit('room', { type: 'cleared', roomIndex: gameState.roomIndex, roomType: this.roomDef.type, layer: gameState.layer });
     // 祝福「自修复」：每清完房间恢复HP（数值随强化等级提升）
     if (this.boonHealValencePerRoom > 0) {
@@ -2163,7 +2185,7 @@ export class GameScene extends Phaser.Scene {
     // 精英房：清空即结算样本奖励，并掉落一件装备（搜打撤的「搜」）
     if (this.roomDef.type === 'elite' && this.roomDef.reward) {
       this.applyReward(this.roomDef.reward, '精英房');
-      if (this.roomDef.gearDrop) this.spawnGearDrop(this.roomDef.gearDrop, this.player.x + Phaser.Math.Between(-160, 160), this.player.y + Phaser.Math.Between(-110, 110));
+      if (this.roomDef.gearDrop) this.spawnGearDrop(this.roomDef.gearDrop, this.player.x + this.rng.between(-160, 160), this.player.y + this.rng.between(-110, 110));
     }
     // 战斗房出催化券：同层内越深入给得越多，精英翻倍。
     // 这是局内唯一的稳定券来源，所以它同时也是「要不要继续往深处推」的经济学依据。
@@ -2357,8 +2379,8 @@ export class GameScene extends Phaser.Scene {
     this.removeBoonKeyHandler();
     const boon = this.upgradeChoices[index];
     const school = SCHOOL_COLORS[boon.school];
-    this.playSfx('sfx-ga', 0.8); // 语义同 Chemic ga=合成成功
-    this.time.delayedCall(160, () => this.playSfx('sfx-liang', 0.8)); // 升级清脆音
+    this.playSfx('synthesize', 0.8); // 语义同 Chemic ga=合成成功
+    this.time.delayedCall(160, () => this.playSfx('upgrade', 0.8)); // 升级清脆音
 
     // 重复祝福 → 强化（最多 Lv.3）；新祝福 → 替换同槽位旧祝福
     const existing = gameState.equippedBoons.find((b) => b.id === boon.id);
@@ -2422,7 +2444,7 @@ export class GameScene extends Phaser.Scene {
       getEl.className = 'show';
     }
 
-    this.playSfx('sfx-click', 0.8);
+    this.playSfx('click', 0.8);
     hapticHit();
 
     // Phaser 侧特效
@@ -2598,7 +2620,7 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
-    if (pressure > 0 && Math.random() < pressure) {
+    if (pressure > 0 && this.rng.float() < pressure) {
       if (mode === 'oxidized') {
         if (orbit.count <= 0) return;
         annihilatePair(orbit);
@@ -2909,7 +2931,7 @@ export class GameScene extends Phaser.Scene {
       fullRatio: BALANCE.combat.runawayFullRatio
     })) {
       this.showFloatingText(target.view.x, target.view.y - 70, '⚠ 临界失控 · 反应取消', '#FF4D6D');
-      this.playSfx('sfx-duong', 0.8);
+      this.playSfx('deny', 0.8);
       emit('reaction', { type: 'runaway' });
       return;
     }
@@ -3010,7 +3032,7 @@ export class GameScene extends Phaser.Scene {
         gameState.roomState = 'travel';
         this.travelTimer = 0.35;
         this.cameras.main.fadeOut(300, 10, 14, 26);
-        this.playSfx('sfx-switch', 0.6);
+        this.playSfx('weapon-swap', 0.6);
         return;
       }
     }
@@ -3114,7 +3136,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.showFloatingText(this.player.x, this.player.y - 78, dye.name + ' 进化 Lv.' + lvl, dye.color);
     emit('dye', { name: dye.name + '（进化 Lv.' + lvl + '）' });
-    this.playSfx('sfx-ding', 0.9);
+    this.playSfx('pickup', 0.9);
     this.playTone(880, 0.14, 'sine', 0.06);
     for (const station of this.dyeStations) {
       station.view.destroy();
@@ -3315,7 +3337,7 @@ export class GameScene extends Phaser.Scene {
     if (o.nextCombatHpMult) this.nextCombatHpMult = Math.max(this.nextCombatHpMult, o.nextCombatHpMult);
     // 「以身试药」的收益：本局伤害加成
     if (o.flags?.includes('trial-buff')) this.runDamageBonus += 0.12;
-    this.playSfx('sfx-ding', 0.9);
+    this.playSfx('pickup', 0.9);
   }
 
   private recordEventSeen(id: string): void {
@@ -3388,7 +3410,7 @@ export class GameScene extends Phaser.Scene {
       this.showFloatingText(this.player.x, this.player.y - 60, '还原充能 · 电子回满', '#5CFFB1');
       this.spawnElectronFlow(this.player.x + 60, this.player.y - 40, this.player.x, this.player.y, 0x5cffb1, 6);
     }
-    this.playSfx('sfx-ding', 0.9);
+    this.playSfx('pickup', 0.9);
     if (offer.samples > 0) emit('treasure', { kind: 'samples', amount: offer.samples });
     const { view, label } = this.instrument;
     this.tweens.add({ targets: [view, label], alpha: 0, scale: 1.3, duration: 260, onComplete: () => {
@@ -3419,7 +3441,7 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: scan, y: pos.y - 26, alpha: { from: 0.5, to: 0 }, duration: 1300, repeat: -1, delay: 300, ease: 'Sine.inOut' });
     // 环绕金色微尘
     for (let i = 0; i < 4; i += 1) {
-      const spark = this.add.circle(pos.x + Phaser.Math.Between(-40, 40), pos.y + Phaser.Math.Between(-16, 20), 2, 0xffe9a3, 0.8)
+      const spark = this.add.circle(pos.x + this.rng.between(-40, 40), pos.y + this.rng.between(-16, 20), 2, 0xffe9a3, 0.8)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(7);
       this.roomProps.push(spark);
       this.tweens.add({ targets: spark, y: spark.y - 34, alpha: 0, duration: 1400 + i * 260, repeat: -1, delay: i * 380, ease: 'Sine.out' });
@@ -3435,7 +3457,7 @@ export class GameScene extends Phaser.Scene {
   private spawnBoonPickup(choices: BoonDef[], special = false): void {
     const firstSchool = choices[0].school;
     const school = special ? { primary: 0xfde047, light: '#FDE047' } : SCHOOL_COLORS[firstSchool];
-    const pos = this.clampToPlayArea(this.diamondCx + (Math.random() - 0.5) * 200, this.diamondCy - 200);
+    const pos = this.clampToPlayArea(this.diamondCx + (this.rng.float() - 0.5) * 200, this.diamondCy - 200);
 
     // 外层光晕
     const glow = this.add.circle(pos.x, pos.y, 48, school.primary, 0.18)
@@ -3479,8 +3501,8 @@ export class GameScene extends Phaser.Scene {
     this.boonPickup = null;
 
     // 播放音效
-    this.playSfx('sfx-ka', 0.8);
-    this.playSfx('sfx-ding', 0.7);
+    this.playSfx('panel-open', 0.8);
+    this.playSfx('pickup', 0.7);
 
     // 延迟弹出选择 UI
     this.time.delayedCall(300, () => this.showUpgradeSelection());
@@ -3562,7 +3584,7 @@ export class GameScene extends Phaser.Scene {
       .setStrokeStyle(4, 0xfde047, 0.95).setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({ targets: burst, scale: { from: 0.4, to: 3 }, alpha: 0, duration: 400, ease: 'Cubic.out', onComplete: () => burst.destroy() });
     this.cameraShake(60, 0.002);
-    this.playSfx('sfx-click', 0.8);
+    this.playSfx('click', 0.8);
     this.applyReward(reward, '宝箱');
     // 宝箱是局内最大的稳定券来源，值得专门绕路去开
     this.grantCoupons(couponsForChest(), '宝箱');
@@ -3579,7 +3601,7 @@ export class GameScene extends Phaser.Scene {
     if (!def) return;
     gameState.carriedGear.push(id);
     this.showFloatingText(x, y - 30, `装备 ${def.name}（撤离带出）`, GEAR_RARITY_META[def.rarity].color);
-    this.playSfx('sfx-liang', 0.8);
+    this.playSfx('upgrade', 0.8);
     this.playTone(1320, 0.08, 'sine', 0.05);
   }
 
@@ -3595,7 +3617,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setBlendMode(Phaser.BlendModes.ADD)
       .setDepth(7);
-    this.tweens.add({ targets: beam, alpha: { from: 0.08, to: 0.22 }, scaleX: { from: 0.85, to: 1.12 }, duration: 900 + Math.random() * 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    this.tweens.add({ targets: beam, alpha: { from: 0.08, to: 0.22 }, scaleX: { from: 0.85, to: 1.12 }, duration: 900 + this.rng.float() * 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     const halo = this.add.arc(pos.x, pos.y, 26, rarityHex, 0.25)
       .setStrokeStyle(2.5, rarityHex, 0.9)
       .setBlendMode(Phaser.BlendModes.ADD)
@@ -3606,7 +3628,7 @@ export class GameScene extends Phaser.Scene {
       stroke: '#0A0E1A', strokeThickness: 3
     }).setOrigin(0.5).setDepth(8);
     this.gearDrops.push({ beam, halo, icon, def, x: pos.x, y: pos.y });
-    this.playSfx('sfx-ziya', 0.5);
+    this.playSfx('toggle', 0.5);
   }
 
   /** 地面装备更新：磁吸 + 拾取（与自由电子同一套手感参数）。 */
@@ -3716,7 +3738,7 @@ export class GameScene extends Phaser.Scene {
     stand.label.setText(`${slot.name}\n已购出`);
     stand.view.setStrokeStyle(2, 0x5CFFB1, 0.9);
     this.applyShopSlot(slot, stand.view.x, stand.view.y);
-    this.playSfx('sfx-click', 0.8);
+    this.playSfx('click', 0.8);
     this.cameraShake(40, 0.0015);
   }
 
@@ -3779,7 +3801,7 @@ export class GameScene extends Phaser.Scene {
       .setColor(color)
       .setAlpha(0)
       .setScale(1);
-    const drift = Phaser.Math.Between(-12, 12);
+    const drift = this.rng.between(-12, 12);
     t.x += drift;
     this.tweens.add({
       targets: t, alpha: { from: 0, to: 1 }, x: t.x + drift * 1.5, y: y - 40, duration: 900, ease: 'Cubic.out',
@@ -3988,7 +4010,7 @@ export class GameScene extends Phaser.Scene {
     gameState.weaponSwitchCd = 0.35;
     gameState.currentWeapon = gameState.currentWeapon === 'platinum-knife' ? 'reaction-cannon' : 'platinum-knife';
     haptic(15);
-    this.playSfx('sfx-switch', 0.7);
+    this.playSfx('weapon-swap', 0.7);
     const flash = this.add.circle(this.player.x, this.player.y, 40, 0xffffff, 0.35)
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(100);
     this.tweens.add({ targets: flash, alpha: 0, scale: 2, duration: 250, onComplete: () => flash.destroy() });
@@ -4162,7 +4184,7 @@ export class GameScene extends Phaser.Scene {
     // 蓄力完成的瞬间音（一次），语义同 Chemic budong=射线蓄力完成
     if (!this.chargePulseSounded) {
       this.chargePulseSounded = true;
-      this.playSfx('sfx-budong', 0.8);
+      this.playSfx('charge', 0.8);
     }
     const pulse = Math.sin(this.time.now * 0.012) * 0.5 + 0.5;
     fx.outer.setAlpha(0.7 + pulse * 0.3)
@@ -4218,7 +4240,7 @@ export class GameScene extends Phaser.Scene {
       if (this.specialDenyHintTimer <= 0) {
         this.specialDenyHintTimer = 0.9;
         this.showFloatingText(this.player.x, this.player.y - 88, '特殊攻击需要自由电子', '#94A3B8');
-        this.playSfx('sfx-duong', 0.5);
+        this.playSfx('deny', 0.5);
         this.playTone(200, 0.05, 'sine', 0.03);
       }
       return;
@@ -4400,7 +4422,7 @@ export class GameScene extends Phaser.Scene {
       this.applyHitStop(0.06);
       this.cameraShake(90, 0.0024);
       hapticHit();
-      this.playSfx('sfx-saber-hit', 1);
+      this.playSfx('hit-light', 1);
       // 碳键护甲：攻击命中生成护盾，先于 EHP 吸收伤害（受护盾上限约束，避免无限回血）
       if (this.boonShieldHeal > 0) {
         this.gainShield(this.boonShieldHeal, 'attack');
@@ -4492,14 +4514,14 @@ export class GameScene extends Phaser.Scene {
         x: sx + Math.cos(scatter) * Phaser.Math.FloatBetween(16, 42),
         y: sy + Math.sin(scatter) * Phaser.Math.FloatBetween(16, 42),
         alpha: 0, scale: 0.15,
-        duration: Phaser.Math.Between(90, 180),
+        duration: this.rng.between(90, 180),
         delay: t * 110,
         onComplete: () => spark.destroy()
       });
     }
 
     hapticFire();
-    this.playSfx('sfx-saber-swing', 0.7);
+    this.playSfx('swing', 0.7);
   }
 
   /** 命中切割反馈：激光切割白线 + 冲击波环 + 沿切割线方向火花 */
@@ -4546,7 +4568,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private rangedAttack(baseDamage: number, target: { x: number; y: number; enemy?: RuntimeEnemy; boss?: boolean } | undefined, boost = 0): void {
-    this.playSfx('sfx-cil', 0.7); // 语义同 Chemic castSpell=释放法术弹幕
+    this.playSfx('charge', 0.7); // 语义同 Chemic castSpell=释放法术弹幕
     const px = this.player.x + this.lastDirection.x * 34;
     const py = this.player.y + this.lastDirection.y * 34;
     const angle = target
@@ -4574,7 +4596,7 @@ export class GameScene extends Phaser.Scene {
 
     hapticFire();
     this.cameraShake(55, 0.0004);
-    this.playSfx('sfx-cannon', 0.9);
+    this.playSfx('cast', 0.9);
   }
 
   /** 炮特殊攻击：持续激光束，由细到粗（最宽约 50px），持续伤害并短距击退敌人。
@@ -4582,7 +4604,7 @@ export class GameScene extends Phaser.Scene {
   private laserAttack(angle: number, electronBoost = 0): void {
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
     const oxidizedBoost = electronBoost > 0 && gameState.mode === 'oxidized';
-    this.playSfx('sfx-jiu', 0.9); // 语义同 Chemic castRay=释放射线
+    this.playSfx('spray', 0.9); // 语义同 Chemic castRay=释放射线
     const beamLen = 2400;
     const totalMs = 700;
     const tickMs = 60;
@@ -4748,10 +4770,10 @@ export class GameScene extends Phaser.Scene {
       const t = i / (sfxCount - 1); // 0→1
       const vol = 0.05 + 0.85 * t;  // 0.05→0.9
       this.time.delayedCall(Math.round(totalMs * t), () => {
-        this.playSfx('sfx-cannon', vol);
+        this.playSfx('cast', vol);
       });
     }
-    this.time.delayedCall(Math.round(totalMs * 0.6), () => this.playSfx('sfx-saber-hit', 0.5));
+    this.time.delayedCall(Math.round(totalMs * 0.6), () => this.playSfx('hit-light', 0.5));
   }
 
   /** 刀特殊攻击：360° 全周挥斩 3 次（沿用普攻光剑横扫视觉 + 火花特效）。
@@ -4910,7 +4932,7 @@ export class GameScene extends Phaser.Scene {
             y: sy + Math.sin(scatter) * Phaser.Math.FloatBetween(16, 42),
             alpha: 0,
             scale: 0.15,
-            duration: Phaser.Math.Between(90, 180),
+            duration: this.rng.between(90, 180),
             delay: t * 110,
             onComplete: () => spark.destroy()
           });
@@ -4962,15 +4984,15 @@ export class GameScene extends Phaser.Scene {
               y: tipY + Math.sin(scatter) * Phaser.Math.FloatBetween(8, 22),
               scale: { from: 0.4, to: 1.7 },
               alpha: 0,
-              duration: Phaser.Math.Between(140, 240),
+              duration: this.rng.between(140, 240),
               onComplete: () => fire.destroy()
             });
           }
         });
         this.time.delayedCall(perSlashMs + 60, () => trailEvent.remove());
 
-        this.playSfx('sfx-saber-swing', 0.7);
-        if (hitCount > 0) this.playSfx('sfx-saber-hit', 0.9);
+        this.playSfx('swing', 0.7);
+        if (hitCount > 0) this.playSfx('hit-light', 0.9);
       });
     };
     runSlash(0);
@@ -5106,7 +5128,7 @@ export class GameScene extends Phaser.Scene {
   private spawnElectronFlow(fromX: number, fromY: number, toX: number, toY: number, color: number, count: number): void {
     if (!getSettings().electronFeedbackEnabled) return;
     for (let index = 0; index < count; index += 1) {
-      const particle = this.add.circle(fromX + Phaser.Math.Between(-14, 14), fromY + Phaser.Math.Between(-14, 14), 4, color)
+      const particle = this.add.circle(fromX + this.rng.between(-14, 14), fromY + this.rng.between(-14, 14), 4, color)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(6);
       this.tweens.add({
@@ -5153,7 +5175,7 @@ export class GameScene extends Phaser.Scene {
   private showDamageNumber(x: number, y: number, amount: number, color: string): void {
     const text = this.obtainCombatText();
     text.setFontSize(24 * this.uiScale)
-      .setPosition(x + Phaser.Math.Between(-14, 14), y)
+      .setPosition(x + this.rng.between(-14, 14), y)
       .setText(`${amount}`)
       .setColor(color)
       .setAlpha(1)
@@ -5169,7 +5191,7 @@ export class GameScene extends Phaser.Scene {
     if (delta === 0) return;
     // 量级分级（卫戍协议 fx 排版语言）：大额数字放大强调；随机水平漂移让相邻数字永不互相遮挡
     const big = Math.abs(delta) >= 4;
-    const drift = Phaser.Math.Between(-16, 16);
+    const drift = this.rng.between(-16, 16);
     const label = this.obtainCombatText();
     label.setFontSize((big ? 27 : 20) * this.uiScale)
       .setPosition(x + drift, y)
@@ -5417,7 +5439,7 @@ export class GameScene extends Phaser.Scene {
         if (enemy.shotTimer <= 0 && distance < 780) {
           enemy.shotTimer = 2.8 * heatAtkMult;
           // 2/3 层：远程怪偶发一次射线（蓄力光束）
-          if (gameState.layer >= 1 && Math.random() < 0.35) {
+          if (gameState.layer >= 1 && this.rng.float() < 0.35) {
             const aim = Math.atan2(this.player.y - enemy.view.y, this.player.x - enemy.view.x);
             this.enemyBeamAttack(enemy.view.x, enemy.view.y, aim);
           } else {
@@ -5468,7 +5490,7 @@ export class GameScene extends Phaser.Scene {
           enemy.chargeTimer -= delta;
           if (enemy.chargeTimer <= 0) {
             enemy.chargeActive = false;
-            enemy.chargeTimer = (3.5 + Math.random() * 1.5) * heatAtkMult;
+            enemy.chargeTimer = (3.5 + this.rng.float() * 1.5) * heatAtkMult;
             if (distance < 88) {
               this.damagePlayer();
               this.cameraShake(60, 0.003);
@@ -5479,7 +5501,7 @@ export class GameScene extends Phaser.Scene {
         if (gameState.layer >= 1) {
           enemy.shotTimer -= delta;
           if (enemy.shotTimer <= 0 && distance < 640 && distance > 150) {
-            enemy.shotTimer = (4.5 + Math.random() * 1.5) * heatAtkMult;
+            enemy.shotTimer = (4.5 + this.rng.float() * 1.5) * heatAtkMult;
             this.throwBomb(enemy.view.x, enemy.view.y, this.player.x, this.player.y);
           }
         }
@@ -5497,9 +5519,9 @@ export class GameScene extends Phaser.Scene {
         moveTo(240);
         enemy.shotTimer -= delta;
         if (enemy.shotTimer <= 0 && gameState.layer >= 1 && distance < 480) {
-          enemy.shotTimer = (4 + Math.random() * 2) * heatAtkMult;
-          const ox = enemy.view.x + (Math.random() * 2 - 1) * 40;
-          const oy = enemy.view.y + (Math.random() * 2 - 1) * 40;
+          enemy.shotTimer = (4 + this.rng.float() * 2) * heatAtkMult;
+          const ox = enemy.view.x + (this.rng.float() * 2 - 1) * 40;
+          const oy = enemy.view.y + (this.rng.float() * 2 - 1) * 40;
           this.spawnAcidPool(ox, oy);
         }
       } else {
@@ -5543,7 +5565,7 @@ export class GameScene extends Phaser.Scene {
               .setBlendMode(Phaser.BlendModes.ADD);
             this.enemyProjectiles.push({ view: shot, glow: shotGlow, vx: Math.cos(angle) * 420, vy: Math.sin(angle) * 420 });
           });
-          this.playSfx('sfx-dd', 0.6); // 语义同 Chemic：敌人攻击音
+          this.playSfx('hit-heavy', 0.6); // 语义同 Chemic：敌人攻击音
           this.playTone(600, 0.15, 'sine', 0.06);
         }
       } else if (enemy.kind === 'summoner') {
@@ -5553,9 +5575,9 @@ export class GameScene extends Phaser.Scene {
         if (enemy.shotTimer <= 0 && this.enemies.length < 12) {
           enemy.shotTimer = 6.0 * heatAtkMult;
           // 召唤 1-2 个小怪
-          const count = Math.random() < 0.4 ? 2 : 1;
+          const count = this.rng.float() < 0.4 ? 2 : 1;
           for (let s = 0; s < count; s += 1) {
-            const sa = Math.random() * Math.PI * 2;
+            const sa = this.rng.float() * Math.PI * 2;
             const sx = enemy.view.x + Math.cos(sa) * 80;
             const sy = enemy.view.y + Math.sin(sa) * 80;
             this.spawnElectronFlow(enemy.view.x, enemy.view.y, sx, sy, 0xc084fc, 3);
@@ -5775,7 +5797,7 @@ export class GameScene extends Phaser.Scene {
     if (orbit.count <= 0) this.breakLayerOrKill(target);
     // 暴击判定（活性位点 + 遗物「量子共振器」）
     // 进化的暴击率加成（S1.4）：纯度越高暴击率越高，与活性位点/遗物加算
-    const isCrit = Math.random() < (this.boonCritChanceVal + this.relicCritChance / 100 + this.evolutionStats.critRateBonus);
+    const isCrit = this.rng.float() < (this.boonCritChanceVal + this.relicCritChance / 100 + this.evolutionStats.critRateBonus);
     const critExtra = isCrit ? this.boonCritBonus : 0;    // 祝福额外夺取：过载打击/链式反应/玻璃大炮 + 共振冲刺倍率
     const extraHits = Math.floor((this.boonExtraElectronOxidize + this.relicOxidizeBonus / 10 + critExtra) * this.electronMult);
     for (let i = 0; i < extraHits && orbit.count > 0; i++) {
@@ -5790,6 +5812,9 @@ export class GameScene extends Phaser.Scene {
     if (orbit.count <= 0) this.breakLayerOrKill(target);
     if (isCrit) {
       this.showFloatingText(target.view.x, target.view.y - 72, '暴击！', '#FBBF24');
+      // 暴击是全场最高频的爽点之一，必须有专属音色——原先它复用 alert（警示音），
+      // 等于每次暴击都在喊"注意"，听感上反而削弱了爽感。
+      this.playSfx('crit', 0.8);
       this.playTone(1800, 0.06, 'square', 0.06);
     }
     // 点燃DOT（o-atk-ignite）：附加燃烧，每秒夺取1颗电子
@@ -5835,7 +5860,7 @@ export class GameScene extends Phaser.Scene {
       if (orbit.count <= 0) this.breakLayerOrKill(target);
     }
     // 晶格冲击：20%概率眩晕1秒，并额外夺取 n 颗电子（氧化攻击通用）
-    if (this.boonLatticeBonus > 0 && orbit.count > 0 && Math.random() < 0.2) {
+    if (this.boonLatticeBonus > 0 && orbit.count > 0 && this.rng.float() < 0.2) {
       target.stunTimer = Math.max(target.stunTimer, 1);
       this.showFloatingText(target.view.x, target.view.y - 72, '眩晕', '#FBBF24');
       this.stealElectrons(target, this.boonLatticeBonus, '#FBBF24');
@@ -5849,7 +5874,7 @@ export class GameScene extends Phaser.Scene {
     this.reactionPairs.push({
       x,
       y,
-      angle: Math.random() * Math.PI * 2,
+      angle: this.rng.float() * Math.PI * 2,
       spin: Phaser.Math.FloatBetween(ELECTRON_PAIR_ANIM.spinMin, ELECTRON_PAIR_ANIM.spinMax),
       life: ELECTRON_PAIR_LIFETIME,
       mine,
@@ -5892,8 +5917,8 @@ export class GameScene extends Phaser.Scene {
         .setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: spark,
-        x: mx + Phaser.Math.Between(-60, 60),
-        y: my + Phaser.Math.Between(-60, 60),
+        x: mx + this.rng.between(-60, 60),
+        y: my + this.rng.between(-60, 60),
         alpha: 0,
         scale: 0.2,
         duration: 240,
@@ -6000,8 +6025,8 @@ export class GameScene extends Phaser.Scene {
           .setBlendMode(Phaser.BlendModes.ADD);
         this.tweens.add({
           targets: particle,
-          x: arc.x + Phaser.Math.Between(-46, 46),
-          y: arc.y + Phaser.Math.Between(-46, 46),
+          x: arc.x + this.rng.between(-46, 46),
+          y: arc.y + this.rng.between(-46, 46),
           alpha: 0,
           scale: 0.2,
           duration: 260,
@@ -6079,7 +6104,7 @@ export class GameScene extends Phaser.Scene {
       gameState.ehp = Math.min(gameState.ehp + healAmount, gameState.ehpMax);
       this.showFloatingText(this.player.x, this.player.y - 40, `+${healAmount.toFixed(1)}`, '#22C55E');
     }
-    this.playSfx('sfx-hit', 0.7);
+    this.playSfx('alert', 0.7);
     this.playTone(pitchJitter(110), 0.18, 'sawtooth', 0.08);
     // 击杀反馈：按层级给出定格 + 屏震 + 缩放冲击（精英怪更高一级）
     this.applyFeedback(target.isElite ? 'elite' : 'kill');
@@ -6163,14 +6188,14 @@ export class GameScene extends Phaser.Scene {
     // 飞散电子数量随伤害严重度变化
     const shardCount = result.lostElectron ? 8 : 3;
     for (let index = 0; index < shardCount; index += 1) {
-      const angle = Math.random() * Math.PI * 2;
+      const angle = this.rng.float() * Math.PI * 2;
       const electron = this.add.circle(this.player.x, this.player.y, 4, 0xfde047)
         .setBlendMode(Phaser.BlendModes.ADD)
         .setDepth(7);
       this.tweens.add({
         targets: electron,
-        x: this.player.x + Math.cos(angle) * Phaser.Math.Between(56, 104),
-        y: this.player.y + Math.sin(angle) * Phaser.Math.Between(56, 104),
+        x: this.player.x + Math.cos(angle) * this.rng.between(56, 104),
+        y: this.player.y + Math.sin(angle) * this.rng.between(56, 104),
         alpha: 0,
         duration: 300,
         onComplete: () => electron.destroy()
@@ -6190,7 +6215,7 @@ export class GameScene extends Phaser.Scene {
       });
     }
     // 遗物「价电子护盾」反伤效果：按比例反弹所受伤害
-    if (this.relicThornsChance > 0 && Math.random() * 100 < this.relicThornsChance) {
+    if (this.relicThornsChance > 0 && this.rng.float() * 100 < this.relicThornsChance) {
       const thornsDmg = Math.max(1, Math.round(10 * this.relicThornsDamage));
       // 对最近的敌人造成反伤
       let nearestDist = Infinity;
@@ -6221,7 +6246,7 @@ export class GameScene extends Phaser.Scene {
     this.playerDying = true;
     this.upgradeSelectionActive = false;
     this.removeBoonKeyHandler();
-    this.playSfx('sfx-behit', 1);
+    this.playSfx('hurt', 1);
     // 关闭祝福选择面板（防止死亡时残留）
     const overlay = document.getElementById('upgrade-overlay');
     if (overlay) overlay.classList.remove('show', 'fade-out');
@@ -6233,8 +6258,8 @@ export class GameScene extends Phaser.Scene {
     this.orbitElectrons.forEach((sat) => {
       this.tweens.add({
         targets: sat.electron,
-        x: sat.electron.x + Phaser.Math.Between(-160, 160),
-        y: sat.electron.y + Phaser.Math.Between(-160, 160),
+        x: sat.electron.x + this.rng.between(-160, 160),
+        y: sat.electron.y + this.rng.between(-160, 160),
         alpha: 0,
         duration: 600,
         ease: 'Cubic.out'
@@ -6320,7 +6345,7 @@ export class GameScene extends Phaser.Scene {
     this.dashMotionTimer = BALANCE.dash.motionSeconds;
     // 冲刺拉伸：沿移动方向拉长本体，让位移方向与速度感一致
     this.playPlayerSquash(0.16, 0.2, true);
-    this.playSfx('sfx-huu', 0.5); // 语义同 Chemic huu=底部面板收起，作冲刺音
+    this.playSfx('collapse', 0.5); // 语义同 Chemic huu=底部面板收起，作冲刺音
     this.playerBody.setMaxVelocity(BALANCE.dash.maxVelocity, BALANCE.dash.maxVelocity);
     this.playerBody.setVelocity(dir.x * BALANCE.dash.velocity, dir.y * BALANCE.dash.velocity);
     // ---- 冲刺祝福 ----
@@ -6646,7 +6671,7 @@ export class GameScene extends Phaser.Scene {
 
   /** 击杀掉落自由电子（40% 概率）：接触拾取 +1，可囤积在地面作为特殊攻击资源。 */
   private spawnElectronDrop(x: number, y: number): void {
-    if (Math.random() > 0.4) return;
+    if (this.rng.float() > 0.4) return;
     const halo = this.add.circle(x, y, 22, 0x67e8f9, 0.1)
       .setBlendMode(Phaser.BlendModes.ADD);
     const view = this.add.circle(x, y, 13, 0x67e8f9, 0.35)
@@ -6813,7 +6838,7 @@ export class GameScene extends Phaser.Scene {
           .setBlendMode(Phaser.BlendModes.ADD);
         this.enemyProjectiles.push({ view: shot, glow: shotGlow, vx: Math.cos(angle) * 300, vy: Math.sin(angle) * 300 });
       }
-      this.playSfx('sfx-dd', 0.6); // 语义同 Chemic：敌方攻击音
+      this.playSfx('hit-heavy', 0.6); // 语义同 Chemic：敌方攻击音
       this.playTone(380, 0.1, 'sawtooth', 0.05);
     }
 
@@ -6870,7 +6895,7 @@ export class GameScene extends Phaser.Scene {
       if (boss.config.id === 'titration') {
         // 酸雾：围绕 Boss 撒三片酸池 + 伴随烟雾
         for (let i = 0; i < 3; i += 1) {
-          const ang = (Math.PI * 2 * i) / 3 + Math.random() * 0.5;
+          const ang = (Math.PI * 2 * i) / 3 + this.rng.float() * 0.5;
           const dx = bx + Math.cos(ang) * 200;
           const dy = by + Math.sin(ang) * 200;
           this.spawnAcidPool(dx, dy);
@@ -6889,8 +6914,8 @@ export class GameScene extends Phaser.Scene {
         // 投弹：向玩家抛多枚炸弹，爆炸伴随烟雾
         const count = boss.phase >= 3 ? 4 : boss.phase === 2 ? 3 : 2;
         for (let i = 0; i < count; i += 1) {
-          const tx = this.player.x + (Math.random() - 0.5) * 120;
-          const ty = this.player.y + (Math.random() - 0.5) * 120;
+          const tx = this.player.x + (this.rng.float() - 0.5) * 120;
+          const ty = this.player.y + (this.rng.float() - 0.5) * 120;
           this.throwBomb(bx, by, tx, ty);
           this.spawnSmoke(tx, ty, 160, 3.5);
         }
@@ -7072,7 +7097,7 @@ export class GameScene extends Phaser.Scene {
       fullRatio: BALANCE.combat.runawayFullRatio
     })) {
       this.showFloatingText(boss.view.x, boss.view.y - 220, '⚠ 临界失控 · 反应取消', '#FF4D6D');
-      this.playSfx('sfx-duong', 0.8);
+      this.playSfx('deny', 0.8);
       emit('reaction', { type: 'runaway' });
       return;
     }
@@ -7166,9 +7191,9 @@ export class GameScene extends Phaser.Scene {
       });
     }
     for (let i = 0; i < 20; i += 1) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Phaser.Math.Between(40, 200);
-      const spark = this.add.circle(boss.view.x, boss.view.y, Phaser.Math.Between(3, 7),
+      const angle = this.rng.float() * Math.PI * 2;
+      const dist = this.rng.between(40, 200);
+      const spark = this.add.circle(boss.view.x, boss.view.y, this.rng.between(3, 7),
         BOSS_ORBIT_COLORS[i % BOSS_ORBIT_COLORS.length]).setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: spark,
@@ -7176,7 +7201,7 @@ export class GameScene extends Phaser.Scene {
         y: boss.view.y + Math.sin(angle) * dist,
         alpha: 0,
         scale: 0.1,
-        duration: Phaser.Math.Between(300, 600),
+        duration: this.rng.between(300, 600),
         ease: 'Cubic.out',
         onComplete: () => spark.destroy()
       });
@@ -7351,7 +7376,7 @@ export class GameScene extends Phaser.Scene {
       this.extractionPressureTimer -= delta;
       if (this.extractionPressureTimer <= 0) {
         this.extractionPressureTimer = 3;
-        const angle = Math.random() * Math.PI * 2;
+        const angle = this.rng.float() * Math.PI * 2;
         const x = this.player.x + Math.cos(angle) * 700;
         const y = this.player.y + Math.sin(angle) * 700 * 0.5;
         const pos = this.clampToPlayArea(x, y);
@@ -7407,8 +7432,8 @@ export class GameScene extends Phaser.Scene {
           bankedIds.map((id) => ({ id, lost: false })),
           gameState.runComplete ? '通关！全部实验成果已入库 · 实验记录永存' : '按 E 开始下一轮 · 装备已存入装备库'
         );
-        this.playSfx('sfx-ga', 0.9);
-        this.playSfx('sfx-ding', 0.9);
+        this.playSfx('synthesize', 0.9);
+        this.playSfx('pickup', 0.9);
         emit('extraction', { active: false, success: true });
         this.cameras.main.flash(300, 50, 115, 125);
         this.reportContinue = () => {
@@ -7438,9 +7463,9 @@ export class GameScene extends Phaser.Scene {
     ];
     for (const layer of layers) {
       for (let i = 0; i < layer.count; i += 1) {
-        const x = Phaser.Math.Between(200, this.worldWidth - 200);
-        const y = layer.y + Phaser.Math.Between(-300, 300);
-        const r = Phaser.Math.Between(60, 160);
+        const x = this.rng.between(200, this.worldWidth - 200);
+        const y = layer.y + this.rng.between(-300, 300);
+        const r = this.rng.between(60, 160);
         const fog = this.add.circle(x, y, r, layer.color, layer.alpha)
           .setBlendMode(Phaser.BlendModes.ADD)
           .setScrollFactor(layer.scrollFactor)
@@ -7449,10 +7474,10 @@ export class GameScene extends Phaser.Scene {
         this.registerCullable(fog, layer.scrollFactor, 360);
         this.tweens.add({
           targets: fog,
-          x: fog.x + Phaser.Math.Between(-120, 120),
+          x: fog.x + this.rng.between(-120, 120),
           alpha: { from: layer.alpha * 0.5, to: layer.alpha * 1.6 },
           scale: { from: 0.7, to: 1.4 },
-          duration: Phaser.Math.Between(4000, 7000),
+          duration: this.rng.between(4000, 7000),
           yoyo: true,
           repeat: -1,
           delay: i * 220,
