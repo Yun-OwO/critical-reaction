@@ -104,6 +104,8 @@ export class FxPool {
   /** 粒子尺寸缩放（低配档整体缩小以降低叠加过绘制） */
   private sizeScale = 1;
   private loadLevel = 0;
+  /** 表现随机源；null 时退化为 Math.random */
+  private prng: { float(): number } | null = null;
 
   public constructor(scene: Phaser.Scene, depth = 105) {
     this.scene = scene;
@@ -223,18 +225,18 @@ export class FxPool {
     const life = o.life ?? 0.35;
     const size = (s / 64) * (o.size ?? 0.45);
     for (let i = 0; i < q; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      const v = s * speed * (0.4 + Math.random() * 0.8);
+      const a = this.rnd() * Math.PI * 2;
+      const v = s * speed * (0.4 + this.rnd() * 0.8);
       const po = this.opts();
       po.tint = tint;
       po.vx = Math.cos(a) * v;
       po.vy = Math.sin(a) * v * 0.7 - up * s;
       po.drag = 3;
       po.g = g;
-      po.life = life * (0.7 + Math.random() * 0.6);
+      po.life = life * (0.7 + this.rnd() * 0.6);
       po.s0 = size;
       po.s1 = (s / 64) * 0.05;
-      po.spin = (Math.random() - 0.5) * 8;
+      po.spin = (this.rnd() - 0.5) * 8;
       po.cosmetic = o.cosmetic ?? false;
       // 每 3 颗混 1 颗带棱角的碎屑：整批火花里夹杂几片"碎片"，读起来更像被溅飞的实体
       this.particle(o.tex || (i % 3 === 2 ? FX_TEX.shard : FX_TEX.spark), x, y, po);
@@ -255,10 +257,10 @@ export class FxPool {
     const tex = o.tex || FX_TEX.spark;
     const q = this.scaledCount(n);
     for (let i = 0; i < q; i += 1) {
-      const a = angle + (Math.random() - 0.5) * 2 * spread;
-      const v = s * speed * (0.35 + Math.random() * 0.95);
+      const a = angle + (this.rnd() - 0.5) * 2 * spread;
+      const v = s * speed * (0.35 + this.rnd() * 0.95);
       const po = this.opts();
-      po.tint = Math.random() < 0.35 ? 0xffffff : tint;
+      po.tint = this.rnd() < 0.35 ? 0xffffff : tint;
       po.vx = Math.cos(a) * v;
       po.vy = Math.sin(a) * v * 0.7;
       // 长轴是局部 +Y（竖直），屏幕方向 = 90° + rot，所以要对齐飞行方向 a 得减 90°。
@@ -267,13 +269,31 @@ export class FxPool {
       po.sx = 0.34;                     // 压成细长条
       po.drag = 3.2;
       po.g = o.g ?? 0;
-      po.life = life * (0.6 + Math.random() * 0.9);
-      po.s0 = (s / 64) * (0.75 + Math.random() * 0.7);
+      po.life = life * (0.6 + this.rnd() * 0.9);
+      po.s0 = (s / 64) * (0.75 + this.rnd() * 0.7);
       po.s1 = (s / 64) * 0.08;
-      po.spin = (Math.random() - 0.5) * 5;
+      po.spin = (this.rnd() - 0.5) * 5;
       po.cosmetic = o.cosmetic ?? false;
       this.particle(tex, x, y, po);
     }
+  }
+
+  /**
+   * 表现随机源（规格 §D：与战斗 RNG 分离）。
+   *
+   * 原先 burst()/sparkCone() 直接用 `Math.random()`：它与战斗随机无关（不污染
+   * 战斗序列），但**表现不可复现**，同一 seed 的两局特效形态不同，也让
+   * FX-density 类测试无法断言。
+   *
+   * 注入独立种子后：表现可复现、可单测，且不接触 `RunRng`。
+   * 不传则退化为 `Math.random`，行为与旧版一致。
+   */
+  public setPresentationRng(rng: { float(): number }): void {
+    this.prng = rng;
+  }
+
+  private rnd(): number {
+    return this.prng ? this.prng.float() : Math.random();
   }
 
   /**

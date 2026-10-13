@@ -74,6 +74,7 @@ import { depthFromXZ, projectXZ } from '../utils/projection';
 import { getSettings } from '../state/SettingsState';
 import { computeFontScale, computeUiScale, currentViewportMetrics, isTouchDevice } from '../ui/uiScale';
 import { RunRng } from '../utils/RunRng';
+import { FxRng, DualClock } from '../visual/visualEvent';
 import { AudioDirector } from '../audio/AudioDirector';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
@@ -731,6 +732,8 @@ export class GameScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     // 共享粒子池：一次性特效（命中/爆发/模式切换）统一走这里，不再逐次新建对象+tween
     this.fx = new FxPool(this);
+    // 表现随机接入共享池：粒子形态可复现，且不触碰战斗 RunRng（规格 §D）
+    this.fx.setPresentationRng(this.fxRng);
     const fxProfile = getVisualProfile();
     this.fx.setBudget(fxProfile.maxParticles, fxProfile.particleScale);
     resetRun();
@@ -974,6 +977,10 @@ export class GameScene extends Phaser.Scene {
     //  - 基数与尺寸取自「光影质量」档（玩家可手动固定，auto 按设备判定）；
     //  - 负载档按实测帧率再乘一层衰减，持续掉帧时自动收紧（同一台设备也能自适应）。
     this.loadMonitor.sample(delta);
+    // 双时钟（规格 §I.1）：命中定格期间冻结 sim，presentation 继续。
+    // 放在早退之前，保证玩家死亡 / 读卡时 UI 动效也不会僵住。
+    this.clock.freezeIf(this.hitStopTimer > 0);
+    this.clock.advance(delta / 1000);
     const profile = getVisualProfile();
     this.fx.setBudget(profile.maxParticles, profile.particleScale);
     this.fx.setLoadLevel(this.loadMonitor.loadLevel);
@@ -1423,6 +1430,23 @@ export class GameScene extends Phaser.Scene {
    * 它们不影响判定，不需要进回放。
    */
   private rng = new RunRng();
+  /**
+   * 表现专用随机源（规格 §D / T02）。
+   *
+   * 与 `rng`（战斗）严格分离：粒子寿命、余烬位置这类**只影响观感**的随机
+   * 必须走这里，否则开关特效会改变后续战斗随机序列（旧版就是这么污染的）。
+   *
+   * 副作用（已知并接受）：迁移后同一 runSeed 下战斗随机序列会与旧版本不同，
+   * 因为旧版已被表现随机消耗过若干次。因此旧回放基线不再逐位一致，
+   * 需以迁移后的版本重新固定基线，并另行验证「画质/静音/VFX 开关不同、
+   * 战斗结果一致」。
+   */
+  private readonly fxRng = new FxRng(0x5eed1e);
+  /**
+   * 双时钟（规格 §I.1）：`sim` 随暂停/定格冻结（危险几何用），
+   * `presentation` 始终推进（DOM 动效与纯余韵用）。
+   */
+  private readonly clock = new DualClock();
   /** 反应层数全局伤害倍率 */
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
@@ -4555,7 +4579,8 @@ export class GameScene extends Phaser.Scene {
         x: sx + Math.cos(scatter) * Phaser.Math.FloatBetween(16, 42),
         y: sy + Math.sin(scatter) * Phaser.Math.FloatBetween(16, 42),
         alpha: 0, scale: 0.15,
-        duration: this.rng.between(90, 180),
+        // 表现随机：火花寿命不影响战斗结果，必须走独立 FxRng（规格 §D）
+        duration: this.fxRng.between(90, 180),
         delay: t * 110,
         onComplete: () => spark.destroy()
       });
@@ -4973,7 +4998,7 @@ export class GameScene extends Phaser.Scene {
             y: sy + Math.sin(scatter) * Phaser.Math.FloatBetween(16, 42),
             alpha: 0,
             scale: 0.15,
-            duration: this.rng.between(90, 180),
+            duration: this.fxRng.between(90, 180),
             delay: t * 110,
             onComplete: () => spark.destroy()
           });
@@ -5025,7 +5050,7 @@ export class GameScene extends Phaser.Scene {
               y: tipY + Math.sin(scatter) * Phaser.Math.FloatBetween(8, 22),
               scale: { from: 0.4, to: 1.7 },
               alpha: 0,
-              duration: this.rng.between(140, 240),
+              duration: this.fxRng.between(140, 240),
               onComplete: () => fire.destroy()
             });
           }
@@ -6581,7 +6606,9 @@ export class GameScene extends Phaser.Scene {
       const x = bomb.fromX + (bomb.toX - bomb.fromX) * p;
       const y = bomb.fromY + (bomb.toY - bomb.fromY) * p;
       bomb.view.setPosition(x, y);
-      bomb.view.setAlpha(0.5 + 0.5 * Math.sin(performance.now() * 0.02));
+      // 用权威模拟时钟而不是挂钟：暂停/定格时炸弹闪烁随之冻结，
+      // 且不会因浏览器节流产生与模拟不一致的观感（规格 §I.1 时钟分离）。
+      bomb.view.setAlpha(0.5 + 0.5 * Math.sin(this.clock.sim * 12.6));
       if (bomb.ttl <= 0) {
         bomb.view.destroy();
         const ring = this.add.circle(x, y, 16, 0xff4d6d, 0.4)
