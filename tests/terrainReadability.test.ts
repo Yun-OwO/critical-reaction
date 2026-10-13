@@ -12,6 +12,8 @@ import { generateTerrain } from '../src/game/world/biomes';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+const ROOT = resolve(__dirname, '..');
+
 const W = 3000;
 const H = 2400;
 const A = 1400;
@@ -74,18 +76,28 @@ describe('渲染规则：侧壁只画在 collidable 上', () => {
   });
 });
 
-describe('地面格栅：工业格栅板而非细线网格', () => {
-  const src = readFileSync(resolve(__dirname, '../src/game/scenes/GameScene.ts'), 'utf8');
+describe('地面网格：2:1 等距菱形晶格（不是正交网格）', () => {
+  const src = readFileSync(resolve(ROOT, 'src/game/scenes/GameScene.ts'), 'utf8');
 
-  it('格栅贴图周期为 96×48（横向条带的一个完整周期）', () => {
+  it('周期贴图为 96×48（halfW:halfH = 2:1 即等距投影）', () => {
     expect(src).toContain('const tileW = 96;');
     expect(src).toContain('const tileH = 48;');
+    expect(src).toContain('const halfW = tileW / 2;');
+    expect(src).toContain('const halfH = tileH / 2;');
   });
 
-  it('格栅由横向承载条 + 暗孔 + 细纵筋构成', () => {
-    expect(src, '横向承载条').toContain('横向承载条');
-    expect(src, '暗孔').toContain('暗孔');
-    expect(src, '细纵筋').toContain('细纵筋');
+  it('用菱形路径绘制，而不是横竖矩形条带', () => {
+    expect(src, '应有菱形顶点绘制').toContain('ctx.moveTo(cx0, cy0 - halfH);');
+    expect(src).toContain('ctx.lineTo(cx0 + halfW, cy0);');
+    expect(src).toContain('ctx.lineTo(cx0, cy0 + halfH);');
+    expect(src).toContain('ctx.lineTo(cx0 - halfW, cy0);');
+    // 回归防线：横向条带填充 = 正交网格，曾据此丢失 2.5D 语言
+    expect(src, '不得用横向条带填充').not.toContain('横向承载条');
+    expect(src).not.toContain('ctx.fillRect(0, y, tileW, h)');
+  });
+
+  it('中心完整菱形 + 四角裁切菱形，平铺后还原完整晶格', () => {
+    expect(src).toContain('[halfW, halfH], [0, 0], [tileW, 0], [0, tileH], [tileW, tileH]');
   });
 
   it('仍用 TileSprite 单四边形渲染（不退回 Graphics 逐帧重描）', () => {
@@ -93,11 +105,11 @@ describe('地面格栅：工业格栅板而非细线网格', () => {
     expect(src).toContain('grid-tile');
   });
 
-  it('半透明：格栅底填充透明度低于 0.5（计划 §7.2 的 0.12–0.22 方向）', () => {
-    const m = /rgba\(18, 26, 32, (0\.\d+)\)/.exec(src);
-    expect(m, '格栅底填充色未找到').not.toBeNull();
+  it('格内半透明填充：通透但读作铺了板材', () => {
+    const m = /fillStyle = 'rgba\(24, 44, 60, (0\.\d+)\)'/.exec(src);
+    expect(m, '格内填充色未找到').not.toBeNull();
     const alpha = Number(m![1]);
-    expect(alpha).toBeLessThan(0.5);
     expect(alpha).toBeGreaterThan(0);
+    expect(alpha, '填充过重会挡住地表').toBeLessThan(0.4);
   });
 });

@@ -1556,44 +1556,44 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawGrid(): void {
-    // 地面格栅（P1 风格纵切）：从「细线菱形网格」改为「工业格栅板」——
-    // 横向承载条 + 暗孔，参考用户提供的深色细密横栅材质图。
-    // 仍光栅化到周期贴图 + TileSprite（单四边形渲染）：此前用 Graphics
-    // 每帧重描约 2600 个菱形，是移动端最大的 CPU 渲染瓶颈，这个优化保留。
+    // 地面网格：2:1 等距菱形晶格（与 relic-grid、terrain isoBlock 同一投影语言）。
+    // 光栅化到 96×48 周期贴图 + TileSprite（单四边形渲染）：此前用 Graphics
+    // 每帧重描约 2600 个菱形，是移动端最大的 CPU 渲染瓶颈，这个优化必须保留。
+    //
+    // 【回归记录】曾一度改成「横向条带格栅板」+ 竖向接缝（正交网格），平铺后
+    // 丢失 2.5D 菱形语言，与场景其余部分的等距投影冲突。格栅的「可通行」语义
+    // 改由 isoBlock 的 collidable 侧壁 + 加粗描边承担，网格本身只负责投影与通透感。
     const texKey = 'grid-tile';
     if (this.textures.exists(texKey)) this.textures.remove(texKey);
     const tileW = 96;
     const tileH = 48;
+    const halfW = tileW / 2;
+    const halfH = tileH / 2;
     const canvasTex = this.textures.createCanvas(texKey, tileW, tileH);
     const ctx = canvasTex?.getContext();
     if (ctx && canvasTex) {
-      // 底层暗底（格栅板的本体色），上下边缘留 1px 接缝带让平铺不断裂
-      ctx.fillStyle = 'rgba(18, 26, 32, 0.34)';
-      ctx.fillRect(0, 0, tileW, tileH);
-      // 横向承载条：三条主条 + 两条细筋，形成"工业踏板"的节奏。
-      // 条与条之间是暗孔——这才是格栅的透视线索来源。
-      const bars: Array<[number, number, string]> = [
-        // [y, 高度, 亮度]
-        [4, 5, 'rgba(96, 118, 132, 0.5)'],
-        [16, 3, 'rgba(78, 96, 108, 0.34)'],
-        [27, 5, 'rgba(96, 118, 132, 0.5)'],
-        [39, 3, 'rgba(78, 96, 108, 0.34)']
+      // 菱形路径：halfW:halfH = 2:1 即等距投影；中心完整菱形 + 四角被裁切，平铺后还原完整晶格
+      const centers: Array<[number, number]> = [
+        [halfW, halfH], [0, 0], [tileW, 0], [0, tileH], [tileW, tileH]
       ];
-      for (const [y, h, color] of bars) {
-        ctx.fillStyle = color;
-        ctx.fillRect(0, y, tileW, h);
-      }
-      // 条面高光：只在主条上沿画 1px 亮线，暗示金属受光（不铺满，避免发灰）
-      ctx.fillStyle = 'rgba(150, 176, 192, 0.28)';
-      ctx.fillRect(0, 4, tileW, 1);
-      ctx.fillRect(0, 27, tileW, 1);
-      // 暗孔内的细纵筋：每 12px 一根，给暗孔一点结构而非纯黑
-      ctx.fillStyle = 'rgba(58, 74, 86, 0.2)';
-      for (let x = 6; x < tileW; x += 12) ctx.fillRect(x, 11, 1, 26);
-      // 左右边缘 1px 竖向接缝，保证横向平铺时条带连续
-      ctx.fillStyle = 'rgba(70, 88, 100, 0.3)';
-      ctx.fillRect(0, 0, 1, tileH);
-      ctx.fillRect(tileW - 1, 0, 1, tileH);
+      const diamondPath = (cx0: number, cy0: number): void => {
+        ctx.beginPath();
+        ctx.moveTo(cx0, cy0 - halfH);
+        ctx.lineTo(cx0 + halfW, cy0);
+        ctx.lineTo(cx0, cy0 + halfH);
+        ctx.lineTo(cx0 - halfW, cy0);
+        ctx.closePath();
+      };
+      // 格内极淡填充：地面读作"铺了半透明格栅板"而非纯线条，同时保持通透
+      ctx.fillStyle = 'rgba(24, 44, 60, 0.16)';
+      for (const p of centers) { diamondPath(p[0], p[1]); ctx.fill(); }
+      // 双层描边：暗宽线打底 + 亮细线提亮，读作蚀刻在金属板上的晶格
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(28, 62, 84, 0.8)';
+      for (const p of centers) { diamondPath(p[0], p[1]); ctx.stroke(); }
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(74, 132, 164, 0.7)';
+      for (const p of centers) { diamondPath(p[0], p[1]); ctx.stroke(); }
       canvasTex!.refresh();
     }
     const gridTile = this.add.tileSprite(this.diamondCx, this.diamondCy, this.worldWidth, this.worldHeight, texKey)
