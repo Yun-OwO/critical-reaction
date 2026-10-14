@@ -79,6 +79,8 @@ import { AudioDirector } from '../audio/AudioDirector';
 import { BgmManager } from '../utils/BgmManager';
 import { SfxLimiter } from '../utils/SfxLimiter';
 import { FxPool, FX_TEX } from '../utils/Fx';
+import { VaporField, EMIT_PRESETS, type EmitParams } from '../fx/VaporField';
+import { VaporRenderer } from '../fx/VaporRenderer';
 import { LoadMonitor } from '../utils/Quality';
 import { generateTerrain } from '../world/biomes';
 import { addLayers, claimMilestones, isRunawayCancel, reactionDamageMult } from '../combat/reaction';
@@ -734,6 +736,14 @@ export class GameScene extends Phaser.Scene {
     this.fx = new FxPool(this);
     // 表现随机接入共享池：粒子形态可复现，且不触碰战斗 RunRng（规格 §D）
     this.fx.setPresentationRng(this.fxRng);
+    // 逸散光雾渲染层：密度场以房间中心起步，随后每帧跟随玩家重定位
+    // （此处 player 尚未创建，故用房间中心初始化）
+    this.vaporRenderer = new VaporRenderer(
+      this,
+      this.vapor,
+      { cellSize: 10, span: 900, centerX: this.diamondCx, centerY: this.diamondCy },
+      104
+    );
     const fxProfile = getVisualProfile();
     this.fx.setBudget(fxProfile.maxParticles, fxProfile.particleScale);
     resetRun();
@@ -985,6 +995,18 @@ export class GameScene extends Phaser.Scene {
     this.fx.setBudget(profile.maxParticles, profile.particleScale);
     this.fx.setLoadLevel(this.loadMonitor.loadLevel);
     this.fx.update(delta);
+    // 逸散光雾：先推进物理，再把状态画成精灵并累积密度场
+    this.vapor.update(Math.min(delta / 1000, 1 / 20));
+    this.vaporRenderer.resize({
+      // cellSize 必须与微粒核半径同量级：格比粒子大时密度只会落在少数格上，
+      // 上采样后云层呈块状（实测 24px 格时 72 粒只点亮 5 格）。
+      cellSize: 10,
+      span: 900,
+      centerX: this.player ? this.player.x : this.diamondCx,
+      centerY: this.player ? this.player.y : this.diamondCy
+    });
+    this.vaporRenderer.sync(this.cameras.main.zoom);
+    this.vaporRenderer.accumulateDensity();
     if (this.playerDying) {
       this.playerBody.setAcceleration(0, 0);
       return;
@@ -1367,6 +1389,48 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * 发射逸散光雾（规格 §D1/§D2）。
+   *
+   * 「大量自发光微粒构成流体云雾」的唯一入口：调用点只描述**原因**，
+   * 微粒初速/寿命/扰动由 VaporField 按 seed 生成 —— 形态连贯但不重复
+   * （既不是固定路径，也不是逐帧白噪声）。
+   *
+   * `tier` 只影响数量与余韵，不减少真实攻击范围与判定。
+   */
+  private emitVapor(
+    tier: 'G0' | 'G1' | 'G2' | 'G3',
+    x: number,
+    y: number,
+    angle: number,
+    tint: number,
+    countScale = 1
+  ): void {
+    const p = tier === 'G0' || tier === 'G1' ? EMIT_PRESETS.g0 : EMIT_PRESETS.g2;
+    this.vapor.setBudget(getVisualProfile().maxParticles);
+    // 重要反馈不因预算被削减；装饰余韵在收紧时先让位（规格 §F3）
+    const decorative = tier === 'G0' || tier === 'G1';
+    const allowance = decorative || this.loadMonitor.loadLevel < 2 ? 1 : 0.4;
+    this.vapor.emit(
+      {
+        count: Math.round(p.count * countScale),
+        x,
+        y,
+        angle,
+        spread: p.spread,
+        speedMin: p.speedMin,
+        speedMax: p.speedMax,
+        lifeMin: p.lifeMin,
+        lifeMax: p.lifeMax,
+        sizeMin: p.sizeMin,
+        sizeMax: p.sizeMax,
+        tint,
+        cosmetic: decorative
+      } as EmitParams,
+      allowance
+    );
+  }
+
+  /**
    * 屏震请求。强度与时长分级来自 feedback.ts，并交由 ShakeGovernor 治理：
    * 更强的冲击覆盖，更弱的冲击不打断正在进行的强震（否则连击会把爆炸震感洗掉）。
    */
@@ -1447,6 +1511,15 @@ export class GameScene extends Phaser.Scene {
    * `presentation` 始终推进（DOM 动效与纯余韵用）。
    */
   private readonly clock = new DualClock();
+  /**
+   * 逸散光雾（规格 §D1 / T08）。
+   *
+   * 与 `fx`（FxPool）分工：FxPool 画「可辨的清晰火花」，本场画「大量微粒累积出的
+   * 柔和云雾」。两者同源不冲突——云雾不是额外叠几张大贴图，而是同一批微粒的
+   * 低分辨率密度累积。
+   */
+  private readonly vapor = new VaporField(undefined, 0x5eed1e);
+  private vaporRenderer!: VaporRenderer;
   /** 反应层数全局伤害倍率 */
   private reactionDamageMult(): number {
     return reactionDamageMult(gameState.reactionLayers, BALANCE.reaction.damagePerLayer, this.reactionMilestoneBonus);
@@ -4671,6 +4744,8 @@ export class GameScene extends Phaser.Scene {
     const color = gameState.mode === 'oxidized' ? 0xff8a4c : 0xfde047;
     const oxidizedBoost = electronBoost > 0 && gameState.mode === 'oxidized';
     this.playSfx('spray', 0.9); // 语义同 Chemic castRay=释放射线
+    // 喷口聚能：发射即有微粒逸散（规格 §D4）
+    this.emitVapor('G1', this.player.x, this.player.y, angle, color, 0.5);
     const beamLen = 2400;
     const totalMs = 700;
     const tickMs = 60;
@@ -5057,6 +5132,8 @@ export class GameScene extends Phaser.Scene {
         });
         this.time.delayedCall(perSlashMs + 60, () => trailEvent.remove());
 
+        // 旋风斩：G2 大范围逸散云雾（规格 §D4）
+        this.emitVapor('G2', px, py, aimAngle, color, 1);
         this.playSfx('swing', 0.7);
         if (hitCount > 0) this.playSfx('hit-light', 0.9);
       });
@@ -6897,6 +6974,8 @@ export class GameScene extends Phaser.Scene {
           this.damagePlayer();
           this.cameraShake(90, 0.004);
         }
+        // Boss 重招：G3 局部爆散云雾（规格 §D5）
+        this.emitVapor('G3', boss.view.x, boss.view.y, this.rng.float() * Math.PI * 2, boss.config.color, 1);
         this.playTone(70, 0.3, 'sawtooth', 0.1);
         const shock = this.add.circle(boss.view.x, boss.view.y, 40, 0xffffff, 0)
           .setStrokeStyle(7, boss.config.color, 0.95)
